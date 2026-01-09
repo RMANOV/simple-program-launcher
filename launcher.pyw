@@ -3,94 +3,25 @@ Mouse Launcher - L+R Click to Launch
 Минималистичен launcher без външни зависимости
 """
 import ctypes
-import ctypes.wintypes as wt
 import json
 import os
 import subprocess
-import threading
 import time
 import tkinter as tk
 from pathlib import Path
 
-# Windows API constants
-WH_MOUSE_LL = 14
-WM_LBUTTONDOWN, WM_LBUTTONUP = 0x201, 0x202
-WM_RBUTTONDOWN, WM_RBUTTONUP = 0x204, 0x205
+# Windows API
+user32 = ctypes.windll.user32
+VK_LBUTTON, VK_RBUTTON = 0x01, 0x02
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
 
 # Config
 CONFIG_FILE = Path(__file__).parent / "config.json"
-CLICK_TOLERANCE_MS = 100  # L+R must be within this window
-
-
-class MouseHook:
-    """Global low-level mouse hook using Windows API"""
-
-    def __init__(self, on_trigger):
-        self.on_trigger = on_trigger
-        self.left_down = False
-        self.right_down = False
-        self.left_time = 0
-        self.right_time = 0
-        self.hook = None
-        self._running = True
-
-        # Setup CallNextHookEx with proper types for 64-bit
-        self._call_next = ctypes.windll.user32.CallNextHookEx
-        self._call_next.argtypes = [wt.HHOOK, ctypes.c_int, wt.WPARAM, wt.LPARAM]
-        self._call_next.restype = wt.LPARAM
-
-        # Define callback type (LRESULT for 64-bit compatibility)
-        self.HOOKPROC = ctypes.CFUNCTYPE(
-            wt.LPARAM, ctypes.c_int, wt.WPARAM, wt.LPARAM
-        )
-        self._callback = self.HOOKPROC(self._hook_callback)
-
-    def _hook_callback(self, nCode, wParam, lParam):
-        if nCode >= 0:
-            now = time.time() * 1000
-
-            if wParam == WM_LBUTTONDOWN:
-                self.left_down = True
-                self.left_time = now
-                self._check_trigger()
-            elif wParam == WM_LBUTTONUP:
-                self.left_down = False
-            elif wParam == WM_RBUTTONDOWN:
-                self.right_down = True
-                self.right_time = now
-                self._check_trigger()
-            elif wParam == WM_RBUTTONUP:
-                self.right_down = False
-
-        return self._call_next(self.hook, nCode, wParam, lParam)
-
-    def _check_trigger(self):
-        if self.left_down and self.right_down:
-            if abs(self.left_time - self.right_time) < CLICK_TOLERANCE_MS:
-                # Get cursor position
-                pt = wt.POINT()
-                ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
-                self.on_trigger(pt.x, pt.y)
-
-    def start(self):
-        def run():
-            self.hook = ctypes.windll.user32.SetWindowsHookExW(
-                WH_MOUSE_LL, self._callback, None, 0
-            )
-            msg = wt.MSG()
-            while self._running and ctypes.windll.user32.GetMessageW(
-                ctypes.byref(msg), None, 0, 0
-            ) > 0:
-                ctypes.windll.user32.TranslateMessage(ctypes.byref(msg))
-                ctypes.windll.user32.DispatchMessageW(ctypes.byref(msg))
-
-        thread = threading.Thread(target=run, daemon=True)
-        thread.start()
-
-    def stop(self):
-        self._running = False
-        if self.hook:
-            ctypes.windll.user32.UnhookWindowsHookEx(self.hook)
+POLL_MS = 30
 
 
 class LauncherPopup:
@@ -100,17 +31,32 @@ class LauncherPopup:
     FG = "#ffffff"
     HOVER = "#2d2d44"
     ITEM_HEIGHT = 36
-    WIDTH = 220
+    WIDTH = 240
 
-    def __init__(self, root, items, on_close):
+    def __init__(self, root, on_close):
         self.root = root
-        self.items = items
         self.on_close = on_close
         self.win = None
+        self._closing = False
+
+    def _load_items(self):
+        """Load items fresh from config"""
+        if CONFIG_FILE.exists():
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    return json.load(f).get("items", [])
+            except:
+                pass
+        return [
+            {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
+            {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
+        ]
 
     def show(self, x, y):
-        if self.win:
-            self.hide()
+        if self.win or self._closing:
+            return
+
+        items = self._load_items()  # Fresh load!
 
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
@@ -118,28 +64,27 @@ class LauncherPopup:
         self.win.attributes("-alpha", 0.95)
         self.win.configure(bg=self.BG)
 
-        # Calculate size and position
-        height = len(self.items) * self.ITEM_HEIGHT + 16
-
-        # Ensure popup stays on screen
+        # Size and position
+        height = len(items) * self.ITEM_HEIGHT + 16
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         x = min(x, screen_w - self.WIDTH - 10)
         y = min(y, screen_h - height - 40)
-
         self.win.geometry(f"{self.WIDTH}x{height}+{x}+{y}")
 
-        # Create items
+        # Items
         frame = tk.Frame(self.win, bg=self.BG)
         frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-        for i, item in enumerate(self.items):
+        for i, item in enumerate(items):
             self._create_item(frame, item, i)
 
-        # Bindings
         self.win.bind("<Escape>", lambda e: self.hide())
-        self.win.bind("<FocusOut>", lambda e: self._on_focus_out())
         self.win.focus_force()
+
+        # Reset flag - wait for buttons to release before listening
+        self._buttons_released = False
+        self.win.after(50, self._check_click_outside)
 
     def _create_item(self, parent, item, index):
         icon = item.get("icon", "▶")
@@ -155,16 +100,14 @@ class LauncherPopup:
             anchor="w",
             padx=8,
             pady=4,
-            cursor="hand2"
+            cursor="hand2",
         )
         lbl.pack(fill="x", pady=2)
 
-        # Hover effects
         lbl.bind("<Enter>", lambda e: lbl.configure(bg=self.HOVER))
         lbl.bind("<Leave>", lambda e: lbl.configure(bg=self.BG))
         lbl.bind("<Button-1>", lambda e: self._launch(path))
 
-        # Keyboard shortcut (1-9)
         if index < 9:
             self.win.bind(str(index + 1), lambda e, p=path: self._launch(p))
 
@@ -179,15 +122,53 @@ class LauncherPopup:
             except Exception as e:
                 print(f"Launch error: {e}")
 
-    def _on_focus_out(self):
-        # Delay to allow click events to process
+    def _check_click_outside(self):
+        if not self.win or self._closing:
+            return
+
+        left = user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
+        right = user32.GetAsyncKeyState(VK_RBUTTON) & 0x8000
+
+        # Wait for BOTH buttons to be released before listening for clicks
+        if not self._buttons_released:
+            if not left and not right:
+                self._buttons_released = True
+            self.win.after(50, self._check_click_outside)
+            return
+
+        # Now listen for fresh left click outside
+        if left and not right:
+            pt = POINT()
+            user32.GetCursorPos(ctypes.byref(pt))
+            try:
+                wx, wy = self.win.winfo_rootx(), self.win.winfo_rooty()
+                ww, wh = self.win.winfo_width(), self.win.winfo_height()
+                if not (wx <= pt.x <= wx + ww and wy <= pt.y <= wy + wh):
+                    self.hide()
+                    return
+            except tk.TclError:
+                pass
+
         if self.win:
-            self.win.after(100, self.hide)
+            self.win.after(50, self._check_click_outside)
 
     def hide(self):
+        if self._closing:
+            return
+        self._closing = True
+
         if self.win:
-            self.win.destroy()
+            try:
+                self.win.destroy()
+            except:
+                pass
             self.win = None
+
+        # Small delay before allowing next popup
+        self.root.after(300, self._finish_close)
+
+    def _finish_close(self):
+        self._closing = False
         self.on_close()
 
 
@@ -196,46 +177,42 @@ class MouseLauncher:
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.withdraw()  # Hide main window
+        self.root.withdraw()
 
-        self.items = self._load_config()
-        self.popup = LauncherPopup(self.root, self.items, self._on_popup_close)
-        self.hook = MouseHook(self._on_trigger)
+        self.popup = LauncherPopup(self.root, self._on_popup_close)
         self._popup_shown = False
+        self._both_were_up = True
+        self._last_trigger = 0
 
-    def _load_config(self):
-        if CONFIG_FILE.exists():
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data.get("items", [])
-            except Exception:
-                pass
+    def _poll_mouse(self):
+        left = user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
+        right = user32.GetAsyncKeyState(VK_RBUTTON) & 0x8000
 
-        # Default items
-        return [
-            {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
-            {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
-            {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
-            {"name": "CMD", "path": "cmd.exe", "icon": "⌨"},
-        ]
+        if left and right:
+            now = time.time()
+            if self._both_were_up and not self._popup_shown:
+                if now - self._last_trigger > 0.5:  # Debounce
+                    self._both_were_up = False
+                    self._last_trigger = now
+                    pt = POINT()
+                    user32.GetCursorPos(ctypes.byref(pt))
+                    self._show_popup(pt.x, pt.y)
+        elif not left and not right:
+            self._both_were_up = True
 
-    def _on_trigger(self, x, y):
-        if not self._popup_shown:
-            self._popup_shown = True
-            self.root.after(0, lambda: self.popup.show(x, y))
+        self.root.after(POLL_MS, self._poll_mouse)
+
+    def _show_popup(self, x, y):
+        self._popup_shown = True
+        self.popup.show(x, y)
 
     def _on_popup_close(self):
         self._popup_shown = False
 
     def run(self):
-        self.hook.start()
-        try:
-            self.root.mainloop()
-        finally:
-            self.hook.stop()
+        self.root.after(100, self._poll_mouse)
+        self.root.mainloop()
 
 
 if __name__ == "__main__":
-    app = MouseLauncher()
-    app.run()
+    MouseLauncher().run()
