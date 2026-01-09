@@ -90,6 +90,21 @@ class LauncherPopup:
         icon = item.get("icon", "▶")
         name = item.get("name", "Unknown")
         path = item.get("path", "")
+        is_sep = item.get("separator", False)
+
+        if is_sep:
+            # Separator - non-clickable divider
+            lbl = tk.Label(
+                parent,
+                text=f"  {name}",
+                font=("Segoe UI", 9),
+                bg=self.BG,
+                fg="#555555",
+                anchor="center",
+                pady=2,
+            )
+            lbl.pack(fill="x", pady=0)
+            return
 
         lbl = tk.Label(
             parent,

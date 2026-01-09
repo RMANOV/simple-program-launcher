@@ -7,6 +7,11 @@
     {"name": "Screensaver", "path": "D:\\OneDrive - Крестън БулМар ООД\\screensavers\\05_screensaver.bat", "icon": "🖼"},
     {"name": "Backup Before", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_before_changes.bat", "icon": "💾"},
     {"name": "Backup After", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_after_changes.bat", "icon": "✅"},
-    {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"}
+    {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"},
+    {"name": "─────────────", "path": "", "icon": " ", "separator": true},
+    {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
+    {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
+    {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
+    {"name": "CMD", "path": "cmd.exe", "icon": "⌨"}
   ]
 }
