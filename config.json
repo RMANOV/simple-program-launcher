@@ -1,0 +1,10 @@
+{
+  "items": [
+    {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
+    {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
+    {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
+    {"name": "CMD", "path": "cmd.exe", "icon": "⌨"},
+    {"name": "Task Manager", "path": "taskmgr.exe", "icon": "📊"},
+    {"name": "VS Code", "path": "code", "icon": "💻"}
+  ]
+}
