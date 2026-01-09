@@ -34,9 +34,14 @@ class MouseHook:
         self.hook = None
         self._running = True
 
-        # Define callback type
+        # Setup CallNextHookEx with proper types for 64-bit
+        self._call_next = ctypes.windll.user32.CallNextHookEx
+        self._call_next.argtypes = [wt.HHOOK, ctypes.c_int, wt.WPARAM, wt.LPARAM]
+        self._call_next.restype = wt.LPARAM
+
+        # Define callback type (LRESULT for 64-bit compatibility)
         self.HOOKPROC = ctypes.CFUNCTYPE(
-            ctypes.c_long, ctypes.c_int, wt.WPARAM, wt.LPARAM
+            wt.LPARAM, ctypes.c_int, wt.WPARAM, wt.LPARAM
         )
         self._callback = self.HOOKPROC(self._hook_callback)
 
@@ -57,7 +62,7 @@ class MouseHook:
             elif wParam == WM_RBUTTONUP:
                 self.right_down = False
 
-        return ctypes.windll.user32.CallNextHookEx(self.hook, nCode, wParam, lParam)
+        return self._call_next(self.hook, nCode, wParam, lParam)
 
     def _check_trigger(self):
         if self.left_down and self.right_down:
