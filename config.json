@@ -10,9 +10,15 @@
     {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"},
     {"name": "Backup Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_cleanup.bat", "icon": "🧹"},
     {"name": "─────────────", "path": "", "icon": " ", "separator": true},
-    {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
+    {"name": "Claude", "path": "C:\\Users\\rmanov\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Anthropic\\Claude.lnk", "icon": "🧠"},
+    {"name": "ChatGPT", "path": "shell:AppsFolder\\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT", "icon": "💬"},
+    {"name": "Copilot", "path": "shell:AppsFolder\\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe!Microsoft.MicrosoftOfficeHub", "icon": "✨"},
+    {"name": "─────────────", "path": "", "icon": " ", "separator": true},
+    {"name": "Word", "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE", "icon": "📄"},
+    {"name": "Notepad++", "path": "C:\\Program Files\\Notepad++\\notepad++.exe", "icon": "📝"},
+    {"name": "Notepad", "path": "notepad.exe", "icon": "📄"},
     {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
     {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
-    {"name": "CMD", "path": "cmd.exe", "icon": "⌨"}
+    {"name": "CMD", "path": "C:\\Windows\\System32\\cmd.exe", "icon": "⌨"}
   ]
 }
