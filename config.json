@@ -8,6 +8,7 @@
     {"name": "Backup Before", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_before_changes.bat", "icon": "💾"},
     {"name": "Backup After", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_after_changes.bat", "icon": "✅"},
     {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"},
+    {"name": "Backup Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_cleanup.bat", "icon": "🧹"},
     {"name": "─────────────", "path": "", "icon": " ", "separator": true},
     {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
     {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
