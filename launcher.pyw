@@ -30,7 +30,7 @@ class LauncherPopup:
     BG = "#1a1a2e"
     FG = "#ffffff"
     HOVER = "#2d2d44"
-    ITEM_HEIGHT = 36
+    ITEM_HEIGHT = 26
     WIDTH = 240
 
     def __init__(self, root, on_close):
@@ -65,8 +65,8 @@ class LauncherPopup:
         self.win.attributes("-alpha", 0.95)
         self.win.configure(bg=self.BG)
 
-        # Size and position (+40 for Add button)
-        height = len(items) * self.ITEM_HEIGHT + 56
+        # Size and position
+        height = len(items) * self.ITEM_HEIGHT + 30
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         x = min(x, screen_w - self.WIDTH - 10)
@@ -75,7 +75,7 @@ class LauncherPopup:
 
         # Items
         self._frame = tk.Frame(self.win, bg=self.BG)
-        self._frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self._frame.pack(fill="both", expand=True, padx=4, pady=4)
 
         for i, item in enumerate(items):
             self._create_item(self._frame, item, i)
@@ -105,7 +105,7 @@ class LauncherPopup:
                 bg=self.BG,
                 fg="#555555",
                 anchor="center",
-                pady=2,
+                pady=0,
             )
             lbl.pack(fill="x", pady=0)
             return
@@ -117,11 +117,11 @@ class LauncherPopup:
             bg=self.BG,
             fg=self.FG,
             anchor="w",
-            padx=8,
-            pady=4,
+            padx=4,
+            pady=2,
             cursor="hand2",
         )
-        lbl.pack(fill="x", pady=2)
+        lbl.pack(fill="x", pady=1)
 
         lbl.bind("<Enter>", lambda e: lbl.configure(bg=self.HOVER))
         lbl.bind("<Leave>", lambda e: lbl.configure(bg=self.BG))
@@ -139,11 +139,11 @@ class LauncherPopup:
             bg=self.BG,
             fg="#888888",
             anchor="w",
-            padx=8,
-            pady=4,
+            padx=4,
+            pady=2,
             cursor="hand2",
         )
-        self._add_btn.pack(fill="x", pady=(8, 0))
+        self._add_btn.pack(fill="x", pady=(4, 0))
         self._add_btn.bind("<Enter>", lambda e: self._add_btn.configure(bg=self.HOVER))
         self._add_btn.bind("<Leave>", lambda e: self._add_btn.configure(bg=self.BG))
         self._add_btn.bind("<Button-1>", lambda e: self._show_add_form())
@@ -156,7 +156,7 @@ class LauncherPopup:
         self._add_btn.pack_forget()
 
         self._add_form = tk.Frame(self._frame, bg=self.BG)
-        self._add_form.pack(fill="x", pady=(8, 0))
+        self._add_form.pack(fill="x", pady=(4, 0))
 
         # Path field
         tk.Label(self._add_form, text="Path:", font=("Segoe UI", 9),
@@ -164,7 +164,7 @@ class LauncherPopup:
         self._path_entry = tk.Entry(self._add_form, font=("Segoe UI", 10),
                                     bg="#2d2d44", fg=self.FG, insertbackground=self.FG,
                                     relief="flat", width=28)
-        self._path_entry.pack(fill="x", pady=(0, 4))
+        self._path_entry.pack(fill="x", pady=(0, 2))
 
         # Name field
         tk.Label(self._add_form, text="Name:", font=("Segoe UI", 9),
@@ -172,7 +172,7 @@ class LauncherPopup:
         self._name_entry = tk.Entry(self._add_form, font=("Segoe UI", 10),
                                     bg="#2d2d44", fg=self.FG, insertbackground=self.FG,
                                     relief="flat", width=28)
-        self._name_entry.pack(fill="x", pady=(0, 4))
+        self._name_entry.pack(fill="x", pady=(0, 2))
 
         # Bind Enter to save
         self._path_entry.bind("<Return>", lambda e: self._name_entry.focus())
@@ -190,7 +190,7 @@ class LauncherPopup:
         if self._add_form:
             self._add_form.destroy()
             self._add_form = None
-            self._add_btn.pack(fill="x", pady=(8, 0))
+            self._add_btn.pack(fill="x", pady=(4, 0))
             # Resize window back
             self.win.update_idletasks()
             h = self.win.winfo_reqheight()
