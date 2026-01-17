@@ -1,0 +1,18 @@
+[package]
+name = "launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Simple program launcher - L+R click triggered"
+
+[[bin]]
+name = "launcher"
+path = "src/main.rs"
+
+[dependencies]
+launcher-core = { path = "../core" }
+launcher-ui = { path = "../ui" }
+rdev.workspace = true
+log.workspace = true
+env_logger.workspace = true
+anyhow.workspace = true

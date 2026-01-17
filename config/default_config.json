@@ -1,0 +1,33 @@
+{
+  "pinned_programs": [],
+  "pinned_documents": [],
+  "pinned_clipboard": [],
+  "shortcuts": [
+    {
+      "name": "Lock Screen",
+      "path": "loginctl",
+      "icon": null,
+      "args": ["lock-session"],
+      "item_type": "shortcut"
+    },
+    {
+      "name": "Suspend",
+      "path": "systemctl",
+      "icon": null,
+      "args": ["suspend"],
+      "item_type": "shortcut"
+    }
+  ],
+  "max_frequent_programs": 5,
+  "max_frequent_documents": 5,
+  "max_clipboard_history": 10000,
+  "trigger": {
+    "simultaneous_threshold_ms": 50,
+    "debounce_ms": 500
+  },
+  "ui": {
+    "width": 300.0,
+    "margin": 4.0,
+    "dark_mode": true
+  }
+}
