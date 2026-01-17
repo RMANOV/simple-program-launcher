@@ -30,7 +30,7 @@
 
 ### Clipboard Manager
 - **10,000 Entry History** - Never lose copied text again
-- **Instant Search** - Filter history as you type
+- **Fuzzy Search** - Type `hlo` to find `hello world`
 - **Pin Important Items** - Keep frequently-used snippets accessible
 - **Password Detection** - Auto-skips password-like content
 
@@ -203,10 +203,7 @@ cargo test
 - [x] Clipboard history (10K entries)
 - [x] Instant clipboard search
 - [x] Pin clipboard entries
-- [ ] Fuzzy search for all items
-- [ ] Plugin system
-- [ ] Theme customization
-- [ ] Multi-monitor awareness
+- [x] Fuzzy search
 
 ---
 

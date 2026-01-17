@@ -449,20 +449,65 @@ class ClipboardManager:
             print(f"Error setting clipboard: {e}")
 
     def search(self, query: str, limit: int = 50) -> List[str]:
-        """Search clipboard history - instant fuzzy search"""
+        """Fuzzy search clipboard history"""
         if not query:
             return self.history[:limit]
 
-        query_lower = query.lower()
-        results = []
-
+        scored = []
         for item in self.history:
-            if query_lower in item.lower():
-                results.append(item)
-                if len(results) >= limit:
-                    break
+            score = fuzzy_score(query, item)
+            if score > 0:
+                scored.append((score, item))
 
-        return results
+        scored.sort(key=lambda x: -x[0])
+        return [item for _, item in scored[:limit]]
+
+
+def fuzzy_score(query: str, text: str) -> int:
+    """
+    Fuzzy matching score. Higher = better match.
+    - Exact substring: 1000 + position bonus
+    - Consecutive chars: 10 per char
+    - Any match: 1 per char
+    - Word start bonus: +5
+    """
+    query_lower = query.lower()
+    text_lower = text.lower()
+
+    # Exact substring match (highest priority)
+    if query_lower in text_lower:
+        pos = text_lower.find(query_lower)
+        return 1000 + (100 - min(pos, 100))  # Earlier = higher score
+
+    # Fuzzy matching
+    score = 0
+    q_idx = 0
+    consecutive = 0
+    prev_match_idx = -2
+
+    for t_idx, char in enumerate(text_lower):
+        if q_idx < len(query_lower) and char == query_lower[q_idx]:
+            score += 1
+
+            # Consecutive bonus
+            if t_idx == prev_match_idx + 1:
+                consecutive += 1
+                score += consecutive * 10
+            else:
+                consecutive = 0
+
+            # Word start bonus
+            if t_idx == 0 or text[t_idx - 1] in ' _-./\\':
+                score += 5
+
+            prev_match_idx = t_idx
+            q_idx += 1
+
+    # All query chars must match
+    if q_idx < len(query_lower):
+        return 0
+
+    return score
 
 
 # ============== Mouse Input ==============
