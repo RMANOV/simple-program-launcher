@@ -13,6 +13,74 @@ use std::sync::{Arc, Mutex};
 /// Default display limit for clipboard in UI (scrollable for more)
 const CLIPBOARD_DISPLAY_LIMIT: usize = 10;
 
+/// Fuzzy search scoring - matches Python implementation
+fn fuzzy_score(query: &str, text: &str) -> i32 {
+    let query_lower = query.to_lowercase();
+    let text_lower = text.to_lowercase();
+
+    // Exact substring match (highest priority)
+    if let Some(pos) = text_lower.find(&query_lower) {
+        return 1000 + (100 - pos.min(100) as i32);
+    }
+
+    // Fuzzy matching
+    let mut score = 0i32;
+    let mut q_idx = 0;
+    let mut consecutive = 0i32;
+    let mut prev_match_idx: i32 = -2;
+
+    let query_chars: Vec<char> = query_lower.chars().collect();
+    let text_chars: Vec<char> = text.chars().collect();
+    let text_lower_chars: Vec<char> = text_lower.chars().collect();
+
+    for (t_idx, &char) in text_lower_chars.iter().enumerate() {
+        if q_idx < query_chars.len() && char == query_chars[q_idx] {
+            score += 1;
+
+            // Consecutive bonus
+            if t_idx as i32 == prev_match_idx + 1 {
+                consecutive += 1;
+                score += consecutive * 10;
+            } else {
+                consecutive = 0;
+            }
+
+            // Word start bonus
+            if t_idx == 0 || matches!(text_chars.get(t_idx.wrapping_sub(1)), Some(' ' | '_' | '-' | '.' | '/' | '\\')) {
+                score += 5;
+            }
+
+            prev_match_idx = t_idx as i32;
+            q_idx += 1;
+        }
+    }
+
+    // All query chars must match
+    if q_idx < query_chars.len() {
+        return 0;
+    }
+
+    score
+}
+
+/// Search clipboard history with fuzzy matching
+fn fuzzy_search_clipboard(query: &str, history: &[ClipboardEntry], limit: usize) -> Vec<ClipboardEntry> {
+    if query.is_empty() {
+        return history.iter().take(limit).cloned().collect();
+    }
+
+    let mut scored: Vec<(i32, &ClipboardEntry)> = history
+        .iter()
+        .filter_map(|entry| {
+            let score = fuzzy_score(query, &entry.text);
+            if score > 0 { Some((score, entry)) } else { None }
+        })
+        .collect();
+
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.into_iter().take(limit).map(|(_, e)| e.clone()).collect()
+}
+
 /// Clipboard history entry
 #[derive(Clone, Debug)]
 pub struct ClipboardEntry {
@@ -59,6 +127,7 @@ pub struct LauncherApp {
     show_add_dialog: bool,
     add_dialog_name: String,
     add_dialog_path: String,
+    clipboard_search_query: String,
 }
 
 impl LauncherApp {
@@ -90,6 +159,7 @@ impl LauncherApp {
             show_add_dialog: false,
             add_dialog_name: String::new(),
             add_dialog_path: String::new(),
+            clipboard_search_query: String::new(),
         }
     }
 
@@ -428,26 +498,103 @@ impl eframe::App for LauncherApp {
                     Self::separator(ui);
                 }
 
-                // === Clipboard History ===
+                // === Clipboard History with Fuzzy Search ===
                 if !self.clipboard_history.is_empty() {
                     Self::section_header(ui, "Clipboard History");
-                    let history_clone = self.clipboard_history.clone();
-                    for entry in &history_clone {
+
+                    // Search box
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("\u{1F50D}").color(ThemeColors::DIM_TEXT)); // 🔍
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.clipboard_search_query)
+                                .hint_text("Search clipboard...")
+                                .desired_width(ui.available_width() - 30.0),
+                        );
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Fuzzy search results
+                    let pinned_set: std::collections::HashSet<_> = config.pinned_clipboard.iter().collect();
+                    let search_results = fuzzy_search_clipboard(
+                        &self.clipboard_search_query,
+                        &self.clipboard_history,
+                        50,
+                    );
+
+                    // Show non-pinned results (first 10)
+                    let regular_results: Vec<_> = search_results
+                        .iter()
+                        .filter(|e| !pinned_set.contains(&e.text))
+                        .take(CLIPBOARD_DISPLAY_LIMIT)
+                        .collect();
+
+                    for entry in &regular_results {
                         ui.horizontal(|ui| {
                             let response = ui.add(
                                 egui::Button::new(&entry.preview)
                                     .fill(egui::Color32::TRANSPARENT)
-                                    .min_size(Vec2::new(ui.available_width() - 30.0, 24.0)),
+                                    .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
                             );
 
                             if response.clicked() {
                                 self.paste_clipboard(&entry.text);
                             }
 
+                            // Pin button
+                            if ui.small_button("pin").clicked() {
+                                let text = entry.text.clone();
+                                let _ = self.config_manager.modify(|cfg| {
+                                    cfg.pin_clipboard(text);
+                                });
+                            }
+
                             ui.label(
                                 RichText::new("\u{1F4CB}").color(ThemeColors::CLIPBOARD_ICON),
-                            ); // 📋
+                            );
                         });
+                    }
+
+                    // Show pinned clipboard section
+                    if !config.pinned_clipboard.is_empty() {
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("Pinned").color(ThemeColors::SECTION_HEADER).size(11.0));
+
+                        let query = &self.clipboard_search_query;
+                        for text in &config.pinned_clipboard {
+                            // Filter by search query
+                            if !query.is_empty() && fuzzy_score(query, text) == 0 {
+                                continue;
+                            }
+
+                            let preview = if text.len() > 47 {
+                                format!("{}...", &text[..47])
+                            } else {
+                                text.clone()
+                            };
+
+                            ui.horizontal(|ui| {
+                                let response = ui.add(
+                                    egui::Button::new(&preview)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.paste_clipboard(text);
+                                }
+
+                                // Unpin button
+                                if ui.small_button("x").clicked() {
+                                    let text = text.clone();
+                                    let _ = self.config_manager.modify(|cfg| {
+                                        cfg.unpin_clipboard(&text);
+                                    });
+                                }
+
+                                ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
+                            });
+                        }
                     }
                     Self::separator(ui);
                 }
