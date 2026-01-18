@@ -128,6 +128,13 @@ pub struct LauncherApp {
     add_dialog_name: String,
     add_dialog_path: String,
     clipboard_search_query: String,
+
+    // Pending actions (to avoid borrow issues)
+    pending_launch: Option<LaunchItem>,
+    pending_pin: Option<LaunchItem>,
+    pending_paste: Option<String>,
+    pending_pin_clipboard: Option<String>,
+    pending_unpin_clipboard: Option<String>,
 }
 
 impl LauncherApp {
@@ -138,12 +145,17 @@ impl LauncherApp {
         let platform = Box::new(get_data_source());
         let clipboard = Clipboard::new().ok();
 
-        let config = config_manager.get();
+        // Get config values then drop the lock
+        let (max_frequent_programs, max_frequent_documents) = {
+            let config = config_manager.get();
+            (config.max_frequent_programs, config.max_frequent_documents)
+        };
+
         let frequent_programs = platform
-            .frequent_programs(config.max_frequent_programs)
+            .frequent_programs(max_frequent_programs)
             .unwrap_or_default();
         let recent_documents = platform
-            .recent_files(config.max_frequent_documents)
+            .recent_files(max_frequent_documents)
             .unwrap_or_default();
 
         Self {
@@ -160,19 +172,28 @@ impl LauncherApp {
             add_dialog_name: String::new(),
             add_dialog_path: String::new(),
             clipboard_search_query: String::new(),
+            pending_launch: None,
+            pending_pin: None,
+            pending_paste: None,
+            pending_pin_clipboard: None,
+            pending_unpin_clipboard: None,
         }
     }
 
     /// Refresh data from platform sources
     pub fn refresh(&mut self) {
-        let config = self.config_manager.get();
+        let (max_frequent_programs, max_frequent_documents) = {
+            let config = self.config_manager.get();
+            (config.max_frequent_programs, config.max_frequent_documents)
+        };
+
         self.frequent_programs = self
             .platform
-            .frequent_programs(config.max_frequent_programs)
+            .frequent_programs(max_frequent_programs)
             .unwrap_or_default();
         self.recent_documents = self
             .platform
-            .recent_files(config.max_frequent_documents)
+            .recent_files(max_frequent_documents)
             .unwrap_or_default();
     }
 
@@ -235,7 +256,7 @@ impl LauncherApp {
     }
 
     /// Pin an item to config
-    fn pin_item(&mut self, item: LaunchItem) {
+    fn pin_item(&self, item: LaunchItem) {
         let _ = self.config_manager.modify(|config| {
             match item.item_type {
                 ItemType::Program | ItemType::Shortcut => config.pin_program(item),
@@ -270,53 +291,36 @@ impl LauncherApp {
         ui.add_space(4.0);
     }
 
-    /// Draw a launchable item row
-    fn item_row(
-        &mut self,
-        ui: &mut egui::Ui,
-        item: &LaunchItem,
-        shortcut_key: Option<usize>,
-        pinned: bool,
-        show_pin_button: bool,
-    ) -> bool {
-        let mut launched = false;
+    /// Process pending actions
+    fn process_pending_actions(&mut self) {
+        // Handle pending launch
+        if let Some(item) = self.pending_launch.take() {
+            self.launch_item(&item);
+        }
 
-        ui.horizontal(|ui| {
-            // Shortcut key label
-            if let Some(key) = shortcut_key {
-                ui.label(
-                    RichText::new(format!("[{}]", key))
-                        .color(ThemeColors::DIM_TEXT)
-                        .monospace(),
-                );
-            }
+        // Handle pending pin
+        if let Some(item) = self.pending_pin.take() {
+            self.pin_item(item);
+        }
 
-            // Main button
-            let response = ui.add(
-                egui::Button::new(&item.name)
-                    .fill(egui::Color32::TRANSPARENT)
-                    .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
-            );
+        // Handle pending paste
+        if let Some(text) = self.pending_paste.take() {
+            self.paste_clipboard(&text);
+        }
 
-            if response.clicked() {
-                launched = true;
-            }
+        // Handle pending clipboard pin
+        if let Some(text) = self.pending_pin_clipboard.take() {
+            let _ = self.config_manager.modify(|cfg| {
+                cfg.pin_clipboard(text);
+            });
+        }
 
-            // Pin indicator or button
-            if pinned {
-                ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
-            } else if show_pin_button {
-                if ui
-                    .add(egui::Button::new("pin").small())
-                    .on_hover_text("Pin this item")
-                    .clicked()
-                {
-                    self.pin_item(item.clone());
-                }
-            }
-        });
-
-        launched
+        // Handle pending clipboard unpin
+        if let Some(text) = self.pending_unpin_clipboard.take() {
+            let _ = self.config_manager.modify(|cfg| {
+                cfg.unpin_clipboard(&text);
+            });
+        }
     }
 
     /// Draw the add shortcut dialog
@@ -375,6 +379,9 @@ impl eframe::App for LauncherApp {
         // Update clipboard history
         self.update_clipboard();
 
+        // Process any pending actions from previous frame
+        self.process_pending_actions();
+
         // Handle keyboard shortcuts
         ctx.input(|i| {
             // Escape to close
@@ -384,12 +391,13 @@ impl eframe::App for LauncherApp {
 
             // Number keys 1-9 for shortcuts
             let config = self.config_manager.get();
-            let mut all_items: Vec<&LaunchItem> = Vec::new();
-            all_items.extend(config.pinned_programs.iter());
-            all_items.extend(self.frequent_programs.iter());
-            all_items.extend(config.pinned_documents.iter());
-            all_items.extend(self.recent_documents.iter());
-            all_items.extend(config.shortcuts.iter());
+            let mut all_items: Vec<LaunchItem> = Vec::new();
+            all_items.extend(config.pinned_programs.iter().cloned());
+            all_items.extend(self.frequent_programs.iter().cloned());
+            all_items.extend(config.pinned_documents.iter().cloned());
+            all_items.extend(self.recent_documents.iter().cloned());
+            all_items.extend(config.shortcuts.iter().cloned());
+            drop(config);
 
             for (idx, key) in [
                 Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5,
@@ -400,9 +408,7 @@ impl eframe::App for LauncherApp {
             {
                 if i.key_pressed(*key) {
                     if let Some(item) = all_items.get(idx) {
-                        let item_clone = (*item).clone();
-                        drop(config);
-                        self.launch_item(&item_clone);
+                        self.pending_launch = Some(item.clone());
                         return;
                     }
                 }
@@ -418,22 +424,56 @@ impl eframe::App for LauncherApp {
         // Apply theme
         ctx.set_style(dark_theme());
 
+        // Get config data we need (clone to avoid holding lock)
+        let (
+            pinned_programs,
+            pinned_documents,
+            pinned_clipboard,
+            shortcuts,
+            max_frequent_programs,
+            max_frequent_documents,
+        ) = {
+            let config = self.config_manager.get();
+            (
+                config.pinned_programs.clone(),
+                config.pinned_documents.clone(),
+                config.pinned_clipboard.clone(),
+                config.shortcuts.clone(),
+                config.max_frequent_programs,
+                config.max_frequent_documents,
+            )
+        };
+
         // Main panel
         CentralPanel::default().show(ctx, |ui| {
             ScrollArea::vertical().show(ui, |ui| {
-                let config = self.config_manager.get();
                 let mut shortcut_num = 1usize;
 
                 // === Pinned Programs ===
-                if !config.pinned_programs.is_empty() {
+                if !pinned_programs.is_empty() {
                     Self::section_header(ui, "Pinned Programs");
-                    for item in &config.pinned_programs {
-                        let item_clone = item.clone();
-                        if self.item_row(ui, item, Some(shortcut_num), true, false) {
-                            drop(config);
-                            self.launch_item(&item_clone);
-                            return;
-                        }
+                    for item in &pinned_programs {
+                        ui.horizontal(|ui| {
+                            if shortcut_num <= 9 {
+                                ui.label(
+                                    RichText::new(format!("[{}]", shortcut_num))
+                                        .color(ThemeColors::DIM_TEXT)
+                                        .monospace(),
+                                );
+                            }
+
+                            let response = ui.add(
+                                egui::Button::new(&item.name)
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
+                            );
+
+                            if response.clicked() {
+                                self.pending_launch = Some(item.clone());
+                            }
+
+                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
+                        });
                         shortcut_num += 1;
                     }
                     Self::separator(ui);
@@ -443,34 +483,67 @@ impl eframe::App for LauncherApp {
                 let frequent_programs: Vec<_> = self
                     .frequent_programs
                     .iter()
-                    .filter(|p| !config.pinned_programs.iter().any(|pp| pp.path == p.path))
-                    .take(config.max_frequent_programs)
+                    .filter(|p| !pinned_programs.iter().any(|pp| pp.path == p.path))
+                    .take(max_frequent_programs)
+                    .cloned()
                     .collect();
 
                 if !frequent_programs.is_empty() {
                     Self::section_header(ui, "Frequent Programs");
-                    for item in frequent_programs {
-                        let item_clone = item.clone();
-                        if self.item_row(ui, item, Some(shortcut_num), false, true) {
-                            drop(config);
-                            self.launch_item(&item_clone);
-                            return;
-                        }
+                    for item in &frequent_programs {
+                        ui.horizontal(|ui| {
+                            if shortcut_num <= 9 {
+                                ui.label(
+                                    RichText::new(format!("[{}]", shortcut_num))
+                                        .color(ThemeColors::DIM_TEXT)
+                                        .monospace(),
+                                );
+                            }
+
+                            let response = ui.add(
+                                egui::Button::new(&item.name)
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                            );
+
+                            if response.clicked() {
+                                self.pending_launch = Some(item.clone());
+                            }
+
+                            if ui.small_button("pin").clicked() {
+                                self.pending_pin = Some(item.clone());
+                            }
+                        });
                         shortcut_num += 1;
                     }
                     Self::separator(ui);
                 }
 
                 // === Pinned Documents ===
-                if !config.pinned_documents.is_empty() {
+                if !pinned_documents.is_empty() {
                     Self::section_header(ui, "Pinned Documents");
-                    for item in &config.pinned_documents {
-                        let item_clone = item.clone();
-                        if self.item_row(ui, item, Some(shortcut_num), true, false) {
-                            drop(config);
-                            self.launch_item(&item_clone);
-                            return;
-                        }
+                    for item in &pinned_documents {
+                        ui.horizontal(|ui| {
+                            if shortcut_num <= 9 {
+                                ui.label(
+                                    RichText::new(format!("[{}]", shortcut_num))
+                                        .color(ThemeColors::DIM_TEXT)
+                                        .monospace(),
+                                );
+                            }
+
+                            let response = ui.add(
+                                egui::Button::new(&item.name)
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
+                            );
+
+                            if response.clicked() {
+                                self.pending_launch = Some(item.clone());
+                            }
+
+                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
+                        });
                         shortcut_num += 1;
                     }
                     Self::separator(ui);
@@ -480,19 +553,37 @@ impl eframe::App for LauncherApp {
                 let recent_docs: Vec<_> = self
                     .recent_documents
                     .iter()
-                    .filter(|d| !config.pinned_documents.iter().any(|pd| pd.path == d.path))
-                    .take(config.max_frequent_documents)
+                    .filter(|d| !pinned_documents.iter().any(|pd| pd.path == d.path))
+                    .take(max_frequent_documents)
+                    .cloned()
                     .collect();
 
                 if !recent_docs.is_empty() {
                     Self::section_header(ui, "Recent Documents");
-                    for item in recent_docs {
-                        let item_clone = item.clone();
-                        if self.item_row(ui, item, Some(shortcut_num), false, true) {
-                            drop(config);
-                            self.launch_item(&item_clone);
-                            return;
-                        }
+                    for item in &recent_docs {
+                        ui.horizontal(|ui| {
+                            if shortcut_num <= 9 {
+                                ui.label(
+                                    RichText::new(format!("[{}]", shortcut_num))
+                                        .color(ThemeColors::DIM_TEXT)
+                                        .monospace(),
+                                );
+                            }
+
+                            let response = ui.add(
+                                egui::Button::new(&item.name)
+                                    .fill(egui::Color32::TRANSPARENT)
+                                    .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                            );
+
+                            if response.clicked() {
+                                self.pending_launch = Some(item.clone());
+                            }
+
+                            if ui.small_button("pin").clicked() {
+                                self.pending_pin = Some(item.clone());
+                            }
+                        });
                         shortcut_num += 1;
                     }
                     Self::separator(ui);
@@ -515,7 +606,7 @@ impl eframe::App for LauncherApp {
                     ui.add_space(4.0);
 
                     // Fuzzy search results
-                    let pinned_set: std::collections::HashSet<_> = config.pinned_clipboard.iter().collect();
+                    let pinned_set: std::collections::HashSet<_> = pinned_clipboard.iter().collect();
                     let search_results = fuzzy_search_clipboard(
                         &self.clipboard_search_query,
                         &self.clipboard_history,
@@ -527,6 +618,7 @@ impl eframe::App for LauncherApp {
                         .iter()
                         .filter(|e| !pinned_set.contains(&e.text))
                         .take(CLIPBOARD_DISPLAY_LIMIT)
+                        .cloned()
                         .collect();
 
                     for entry in &regular_results {
@@ -538,15 +630,12 @@ impl eframe::App for LauncherApp {
                             );
 
                             if response.clicked() {
-                                self.paste_clipboard(&entry.text);
+                                self.pending_paste = Some(entry.text.clone());
                             }
 
                             // Pin button
                             if ui.small_button("pin").clicked() {
-                                let text = entry.text.clone();
-                                let _ = self.config_manager.modify(|cfg| {
-                                    cfg.pin_clipboard(text);
-                                });
+                                self.pending_pin_clipboard = Some(entry.text.clone());
                             }
 
                             ui.label(
@@ -556,12 +645,12 @@ impl eframe::App for LauncherApp {
                     }
 
                     // Show pinned clipboard section
-                    if !config.pinned_clipboard.is_empty() {
+                    if !pinned_clipboard.is_empty() {
                         ui.add_space(4.0);
                         ui.label(RichText::new("Pinned").color(ThemeColors::SECTION_HEADER).size(11.0));
 
                         let query = &self.clipboard_search_query;
-                        for text in &config.pinned_clipboard {
+                        for text in &pinned_clipboard {
                             // Filter by search query
                             if !query.is_empty() && fuzzy_score(query, text) == 0 {
                                 continue;
@@ -581,15 +670,12 @@ impl eframe::App for LauncherApp {
                                 );
 
                                 if response.clicked() {
-                                    self.paste_clipboard(text);
+                                    self.pending_paste = Some(text.clone());
                                 }
 
                                 // Unpin button
                                 if ui.small_button("x").clicked() {
-                                    let text = text.clone();
-                                    let _ = self.config_manager.modify(|cfg| {
-                                        cfg.unpin_clipboard(&text);
-                                    });
+                                    self.pending_unpin_clipboard = Some(text.clone());
                                 }
 
                                 ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
@@ -600,13 +686,13 @@ impl eframe::App for LauncherApp {
                 }
 
                 // === Shortcuts ===
-                if !config.shortcuts.is_empty() {
+                if !shortcuts.is_empty() {
                     Self::section_header(ui, "Shortcuts");
-                    for item in &config.shortcuts {
+                    for item in &shortcuts {
                         ui.horizontal(|ui| {
-                            if let Some(key) = (shortcut_num <= 9).then_some(shortcut_num) {
+                            if shortcut_num <= 9 {
                                 ui.label(
-                                    RichText::new(format!("[{}]", key))
+                                    RichText::new(format!("[{}]", shortcut_num))
                                         .color(ThemeColors::DIM_TEXT)
                                         .monospace(),
                                 );
@@ -619,10 +705,7 @@ impl eframe::App for LauncherApp {
                             );
 
                             if response.clicked() {
-                                let item_clone = item.clone();
-                                drop(config);
-                                self.launch_item(&item_clone);
-                                return;
+                                self.pending_launch = Some(item.clone());
                             }
 
                             ui.label(
@@ -633,8 +716,6 @@ impl eframe::App for LauncherApp {
                     }
                     Self::separator(ui);
                 }
-
-                drop(config);
 
                 // === Add Shortcut Button ===
                 ui.add_space(4.0);
@@ -668,9 +749,10 @@ pub fn run_popup(
     config_manager: Arc<ConfigManager>,
     usage_tracker: Arc<Mutex<UsageTracker>>,
 ) -> Result<(), eframe::Error> {
-    let config = config_manager.get();
-    let width = config.ui.width;
-    drop(config);
+    let width = {
+        let config = config_manager.get();
+        config.ui.width
+    };
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

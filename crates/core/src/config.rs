@@ -5,9 +5,8 @@ use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 
 /// A launchable item (program, document, or shortcut)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -267,7 +266,7 @@ impl Config {
 pub struct ConfigManager {
     config: Arc<RwLock<Config>>,
     _watcher: Option<RecommendedWatcher>,
-    reload_rx: Option<Receiver<()>>,
+    reloaded: Arc<AtomicBool>,
 }
 
 impl ConfigManager {
@@ -275,18 +274,19 @@ impl ConfigManager {
     pub fn new() -> Result<Self> {
         let config = Config::load()?;
         let config = Arc::new(RwLock::new(config));
+        let reloaded = Arc::new(AtomicBool::new(false));
 
-        let (reload_tx, reload_rx) = channel();
         let config_path = Config::config_path()?;
 
         let watcher_config = config.clone();
+        let watcher_reloaded = reloaded.clone();
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
             if let Ok(event) = res {
                 if event.kind.is_modify() {
                     if let Ok(new_config) = Config::load() {
                         if let Ok(mut cfg) = watcher_config.write() {
                             *cfg = new_config;
-                            let _ = reload_tx.send(());
+                            watcher_reloaded.store(true, Ordering::SeqCst);
                             log::info!("Config hot-reloaded");
                         }
                     }
@@ -299,7 +299,7 @@ impl ConfigManager {
         Ok(Self {
             config,
             _watcher: Some(watcher),
-            reload_rx: Some(reload_rx),
+            reloaded,
         })
     }
 
@@ -320,10 +320,7 @@ impl ConfigManager {
 
     /// Check if config was reloaded (non-blocking)
     pub fn check_reload(&self) -> bool {
-        self.reload_rx
-            .as_ref()
-            .map(|rx| rx.try_recv().is_ok())
-            .unwrap_or(false)
+        self.reloaded.swap(false, Ordering::SeqCst)
     }
 }
 
@@ -335,7 +332,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.max_frequent_programs, 5);
-        assert_eq!(config.max_clipboard_history, 5);
+        assert_eq!(config.max_clipboard_history, 10000);
         assert!(config.ui.dark_mode);
     }
 

@@ -1,6 +1,6 @@
 //! Dark theme configuration for the launcher UI
 
-use egui::{Color32, FontFamily, FontId, Rounding, Stroke, Style, TextStyle, Visuals};
+use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke, Style, TextStyle, Vec2, Visuals};
 
 /// Create the dark theme for the launcher
 pub fn dark_theme() -> Style {
@@ -14,7 +14,6 @@ pub fn dark_theme() -> Style {
     let panel_color = Color32::from_rgb(40, 40, 48);
     let accent_color = Color32::from_rgb(100, 149, 237); // Cornflower blue
     let text_color = Color32::from_rgb(230, 230, 230);
-    let dim_text = Color32::from_rgb(150, 150, 160);
 
     style.visuals.window_fill = bg_color;
     style.visuals.panel_fill = panel_color;
@@ -37,27 +36,27 @@ pub fn dark_theme() -> Style {
     style.visuals.widgets.active.bg_fill = accent_color.gamma_multiply(0.7);
     style.visuals.widgets.active.fg_stroke = Stroke::new(2.0, text_color);
 
-    // Rounded corners
-    let rounding = Rounding::same(4.0);
-    style.visuals.widgets.noninteractive.rounding = rounding;
-    style.visuals.widgets.inactive.rounding = rounding;
-    style.visuals.widgets.hovered.rounding = rounding;
-    style.visuals.widgets.active.rounding = rounding;
-    style.visuals.window_rounding = Rounding::same(8.0);
+    // Rounded corners (using CornerRadius in egui 0.31+)
+    let corner_radius = CornerRadius::same(4);
+    style.visuals.widgets.noninteractive.corner_radius = corner_radius;
+    style.visuals.widgets.inactive.corner_radius = corner_radius;
+    style.visuals.widgets.hovered.corner_radius = corner_radius;
+    style.visuals.widgets.active.corner_radius = corner_radius;
+    style.visuals.window_corner_radius = CornerRadius::same(8);
 
     // Window shadow
-    style.visuals.window_shadow.offset = [2.0, 4.0].into();
-    style.visuals.window_shadow.blur = 8.0;
-    style.visuals.window_shadow.spread = 0.0;
+    style.visuals.window_shadow.offset = [2, 4];
+    style.visuals.window_shadow.blur = 8;
+    style.visuals.window_shadow.spread = 0;
     style.visuals.window_shadow.color = Color32::from_black_alpha(100);
 
     // Popup shadow
     style.visuals.popup_shadow = style.visuals.window_shadow;
 
     // Minimal spacing
-    style.spacing.item_spacing = [4.0, 4.0].into();
+    style.spacing.item_spacing = Vec2::new(4.0, 4.0);
     style.spacing.window_margin = 8.0.into();
-    style.spacing.button_padding = [8.0, 4.0].into();
+    style.spacing.button_padding = Vec2::new(8.0, 4.0);
 
     // Text styles
     let font_size = 14.0;
