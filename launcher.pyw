@@ -133,8 +133,8 @@ class LauncherPopup:
                     # Handle old format (list of strings)
                     if data and isinstance(data[0], str):
                         return [{"text": t, "count": 0, "last": ""} for t in data]
-                    # Sort by count descending
-                    return sorted(data, key=lambda x: x.get("count", 0), reverse=True)
+                    # Sort by count DESC, then by last DESC (newest first among same count)
+                    return sorted(data, key=lambda x: (x.get("count", 0), x.get("last", "")), reverse=True)
             except:
                 pass
         return []
