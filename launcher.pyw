@@ -140,10 +140,14 @@ class LauncherPopup:
         return []
 
     def _save_clips(self, clips):
-        """Save clipboard history"""
+        """Save clipboard history, evicting least-used oldest items"""
+        # Evict least-used oldest when over limit
+        while len(clips) > MAX_CLIPS:
+            victim = min(clips, key=lambda c: (c.get("count", 0), c.get("last", "")))
+            clips.remove(victim)
         try:
             with open(CLIP_FILE, "w", encoding="utf-8") as f:
-                json.dump(clips[-MAX_CLIPS:], f, indent=2, ensure_ascii=False)
+                json.dump(clips, f, indent=2, ensure_ascii=False)
         except:
             pass
 
