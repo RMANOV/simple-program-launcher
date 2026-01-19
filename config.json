@@ -4,7 +4,7 @@
     {"name": "Rates Monthly", "path": "D:\\OneDrive - Крестън БулМар ООД\\4_rates_to_monthly_updates", "icon": "📁"},
     {"name": "Mapping Studio", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_mapping_studio.bat", "icon": "🗺"},
     {"name": "Reports GUI", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_gui.bat", "icon": "📊"},
-    {"name": "Screensaver", "path": "D:\\OneDrive - Крестън БулМар ООД\\screensavers\\05_screensaver.bat", "icon": "🖼"},
+    {"name": "Screensaver", "path": "D:\\OneDrive - Крестън БулМар ООД\\screensavers\\start_screensaver.vbs", "icon": "🖼"},
     {"name": "Backup Before", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_before_changes.bat", "icon": "💾"},
     {"name": "Backup After", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_after_changes.bat", "icon": "✅"},
     {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"},

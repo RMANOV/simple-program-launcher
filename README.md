@@ -18,6 +18,10 @@ Zero external dependencies - pure Python standard library (tkinter + ctypes).
 - **Keyboard Shortcuts** - Press 1-9 to launch items quickly
 - **Click Outside to Close** - Or press Escape
 - **Separators** - Organize items into groups
+- **➕ Add New Items** - Click to add programs directly from launcher
+- **Auto-naming** - Leave name empty, uses filename automatically
+- **UWP/Store Apps** - Launch Windows Store apps via `shell:AppsFolder`
+- **Compact Design** - Minimal margins, maximum density
 - **Auto Start** - Optional Windows startup integration
 
 ---
@@ -33,6 +37,22 @@ python launcher.pyw
 ```
 
 **Usage:** Press **Left + Right mouse buttons** together anywhere on screen.
+
+---
+
+## Adding Items
+
+### Method 1: Via UI (Quick)
+
+1. Trigger launcher (L+R click)
+2. Click **"➕ Add new..."**
+3. Enter path (full path to exe/file/folder)
+4. Enter name (optional - auto-generated from filename)
+5. Press **Enter** to save
+
+### Method 2: Edit config.json (Full Control)
+
+Edit `config.json` directly for separators, custom icons, and advanced options.
 
 ---
 
@@ -61,6 +81,18 @@ Edit `config.json` to customize your launcher:
 | `icon` | No | Emoji or character (default: ▶) |
 | `separator` | No | Set `true` for non-clickable divider line |
 
+### Windows Store / UWP Apps
+
+```json
+{"name": "ChatGPT", "path": "shell:AppsFolder\\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT", "icon": "💬"},
+{"name": "Copilot", "path": "shell:AppsFolder\\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe!Microsoft.MicrosoftOfficeHub", "icon": "✨"}
+```
+
+**Find AppID via PowerShell:**
+```powershell
+Get-StartApps | Where-Object Name -match "appname"
+```
+
 ---
 
 ## Auto Start (Windows)
@@ -72,16 +104,9 @@ Edit `config.json` to customize your launcher:
 
 ```vbs
 ' MouseLauncher.vbs - Silent startup script
-' Launches pythonw without any visible window
 Set WshShell = CreateObject("WScript.Shell")
 WshShell.Run "pythonw ""D:\path\to\launcher.pyw""", 0, False
 ```
-
-**How it works:**
-- `WScript.Shell.Run` executes a command
-- `pythonw` runs Python without console window
-- Second parameter `0` = hidden window
-- `False` = don't wait for completion
 
 ### Method 2: BAT File (Simple, Brief Console Flash)
 
@@ -91,16 +116,6 @@ Create `MouseLauncher.bat` in `shell:startup`:
 @echo off
 start "" pythonw "D:\path\to\launcher.pyw"
 ```
-
-**Note:** BAT shows a brief black console flash on startup. VBS method is cleaner.
-
-### Startup Folder Location
-
-```
-C:\Users\<username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup
-```
-
-Or access via: `Win+R` → `shell:startup`
 
 ---
 
@@ -118,7 +133,8 @@ Or access via: `Win+R` → `shell:startup`
 │  LauncherPopup (UI)                                 │
 │  ├── Borderless tkinter window                     │
 │  ├── Loads config.json fresh on each show          │
-│  └── Click-outside detection with debounce         │
+│  ├── Click-outside detection with debounce         │
+│  └── Inline add form for new items                 │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -160,7 +176,13 @@ def show(self, x, y):
 if os.path.exists(path):
     os.startfile(path)      # Files, folders, URLs
 else:
-    subprocess.Popen(path, shell=True)  # System commands
+    subprocess.Popen(path, shell=True)  # System commands, UWP apps
+```
+
+**5. Auto-naming**
+```python
+if not name:
+    name = Path(path).stem  # Extract filename without extension
 ```
 
 ---
@@ -168,7 +190,7 @@ else:
 ## Full Source Code
 
 <details>
-<summary>launcher.pyw (~230 lines)</summary>
+<summary>launcher.pyw (~330 lines)</summary>
 
 ```python
 """
@@ -183,27 +205,26 @@ import time
 import tkinter as tk
 from pathlib import Path
 
-# Windows API for mouse state detection
+# Windows API
 user32 = ctypes.windll.user32
 VK_LBUTTON, VK_RBUTTON = 0x01, 0x02
 
 
 class POINT(ctypes.Structure):
-    """Windows POINT structure for cursor position"""
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
-POLL_MS = 30  # Mouse polling interval
+POLL_MS = 30
 
 
 class LauncherPopup:
     """Floating popup window with pinned items"""
 
-    BG = "#1a1a2e"      # Dark background
-    FG = "#ffffff"      # White text
-    HOVER = "#2d2d44"   # Hover highlight
-    ITEM_HEIGHT = 36
+    BG = "#1a1a2e"
+    FG = "#ffffff"
+    HOVER = "#2d2d44"
+    ITEM_HEIGHT = 26
     WIDTH = 240
 
     def __init__(self, root, on_close):
@@ -211,16 +232,16 @@ class LauncherPopup:
         self.on_close = on_close
         self.win = None
         self._closing = False
+        self._add_form = None
 
     def _load_items(self):
-        """Load items fresh from config (hot reload support)"""
+        """Load items fresh from config"""
         if CONFIG_FILE.exists():
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     return json.load(f).get("items", [])
             except:
                 pass
-        # Fallback defaults
         return [
             {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
             {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
@@ -232,32 +253,30 @@ class LauncherPopup:
 
         items = self._load_items()
 
-        # Create borderless, always-on-top window
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
         self.win.attributes("-alpha", 0.95)
         self.win.configure(bg=self.BG)
 
-        # Position at cursor, keep on screen
-        height = len(items) * self.ITEM_HEIGHT + 16
+        height = len(items) * self.ITEM_HEIGHT + 30
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         x = min(x, screen_w - self.WIDTH - 10)
         y = min(y, screen_h - height - 40)
         self.win.geometry(f"{self.WIDTH}x{height}+{x}+{y}")
 
-        # Build item list
-        frame = tk.Frame(self.win, bg=self.BG)
-        frame.pack(fill="both", expand=True, padx=8, pady=8)
+        self._frame = tk.Frame(self.win, bg=self.BG)
+        self._frame.pack(fill="both", expand=True, padx=4, pady=4)
 
         for i, item in enumerate(items):
-            self._create_item(frame, item, i)
+            self._create_item(self._frame, item, i)
 
-        self.win.bind("<Escape>", lambda e: self.hide())
+        self._create_add_button(self._frame)
+
+        self.win.bind("<Escape>", lambda e: self._on_escape())
         self.win.focus_force()
 
-        # Start click-outside detection after buttons released
         self._buttons_released = False
         self.win.after(50, self._check_click_outside)
 
@@ -268,26 +287,100 @@ class LauncherPopup:
         is_sep = item.get("separator", False)
 
         if is_sep:
-            # Non-clickable separator line
             lbl = tk.Label(parent, text=f"  {name}", font=("Segoe UI", 9),
-                          bg=self.BG, fg="#555555", anchor="center", pady=2)
+                          bg=self.BG, fg="#555555", anchor="center", pady=0)
             lbl.pack(fill="x", pady=0)
             return
 
-        # Clickable item
         lbl = tk.Label(parent, text=f" {icon}  {name}", font=("Segoe UI", 11),
-                      bg=self.BG, fg=self.FG, anchor="w", padx=8, pady=4,
+                      bg=self.BG, fg=self.FG, anchor="w", padx=4, pady=2,
                       cursor="hand2")
-        lbl.pack(fill="x", pady=2)
+        lbl.pack(fill="x", pady=1)
 
-        # Hover effects
         lbl.bind("<Enter>", lambda e: lbl.configure(bg=self.HOVER))
         lbl.bind("<Leave>", lambda e: lbl.configure(bg=self.BG))
         lbl.bind("<Button-1>", lambda e: self._launch(path))
 
-        # Keyboard shortcut (1-9)
         if index < 9:
             self.win.bind(str(index + 1), lambda e, p=path: self._launch(p))
+
+    def _create_add_button(self, parent):
+        """Create + button at bottom"""
+        self._add_btn = tk.Label(parent, text=" ➕  Add new...",
+                                font=("Segoe UI", 10), bg=self.BG, fg="#888888",
+                                anchor="w", padx=4, pady=2, cursor="hand2")
+        self._add_btn.pack(fill="x", pady=(4, 0))
+        self._add_btn.bind("<Enter>", lambda e: self._add_btn.configure(bg=self.HOVER))
+        self._add_btn.bind("<Leave>", lambda e: self._add_btn.configure(bg=self.BG))
+        self._add_btn.bind("<Button-1>", lambda e: self._show_add_form())
+
+    def _show_add_form(self):
+        """Show inline add form"""
+        if self._add_form:
+            return
+
+        self._add_btn.pack_forget()
+
+        self._add_form = tk.Frame(self._frame, bg=self.BG)
+        self._add_form.pack(fill="x", pady=(4, 0))
+
+        tk.Label(self._add_form, text="Path:", font=("Segoe UI", 9),
+                bg=self.BG, fg="#888888").pack(anchor="w")
+        self._path_entry = tk.Entry(self._add_form, font=("Segoe UI", 10),
+                                    bg="#2d2d44", fg=self.FG,
+                                    insertbackground=self.FG, relief="flat")
+        self._path_entry.pack(fill="x", pady=(0, 2))
+
+        tk.Label(self._add_form, text="Name:", font=("Segoe UI", 9),
+                bg=self.BG, fg="#888888").pack(anchor="w")
+        self._name_entry = tk.Entry(self._add_form, font=("Segoe UI", 10),
+                                    bg="#2d2d44", fg=self.FG,
+                                    insertbackground=self.FG, relief="flat")
+        self._name_entry.pack(fill="x", pady=(0, 2))
+
+        self._path_entry.bind("<Return>", lambda e: self._name_entry.focus())
+        self._name_entry.bind("<Return>", lambda e: self._save_new_item())
+
+        self._path_entry.focus()
+
+        self.win.update_idletasks()
+        self.win.geometry(f"{self.WIDTH}x{self.win.winfo_reqheight()}")
+
+    def _hide_add_form(self):
+        if self._add_form:
+            self._add_form.destroy()
+            self._add_form = None
+            self._add_btn.pack(fill="x", pady=(4, 0))
+            self.win.update_idletasks()
+            self.win.geometry(f"{self.WIDTH}x{self.win.winfo_reqheight()}")
+
+    def _save_new_item(self):
+        """Save new item to config"""
+        path = self._path_entry.get().strip()
+        name = self._name_entry.get().strip()
+
+        if not path:
+            return
+
+        if not name:
+            name = Path(path).stem  # Auto-name from filename
+
+        items = self._load_items()
+        items.append({"name": name, "path": path, "icon": "📌"})
+
+        try:
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump({"items": items}, f, indent=2, ensure_ascii=False)
+        except:
+            pass
+
+        self.hide()
+
+    def _on_escape(self):
+        if self._add_form:
+            self._hide_add_form()
+        else:
+            self.hide()
 
     def _launch(self, path):
         self.hide()
@@ -307,14 +400,12 @@ class LauncherPopup:
         left = user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
         right = user32.GetAsyncKeyState(VK_RBUTTON) & 0x8000
 
-        # Wait for trigger buttons to release first
         if not self._buttons_released:
             if not left and not right:
                 self._buttons_released = True
             self.win.after(50, self._check_click_outside)
             return
 
-        # Detect fresh left click outside window
         if left and not right:
             pt = POINT()
             user32.GetCursorPos(ctypes.byref(pt))
@@ -342,7 +433,6 @@ class LauncherPopup:
                 pass
             self.win = None
 
-        # Debounce before allowing next popup
         self.root.after(300, self._finish_close)
 
     def _finish_close(self):
@@ -351,11 +441,11 @@ class LauncherPopup:
 
 
 class MouseLauncher:
-    """Main controller - polls mouse and manages popup"""
+    """Main application controller"""
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.withdraw()  # Hide root window
+        self.root.withdraw()
 
         self.popup = LauncherPopup(self.root, self._on_popup_close)
         self._popup_shown = False
@@ -363,14 +453,13 @@ class MouseLauncher:
         self._last_trigger = 0
 
     def _poll_mouse(self):
-        """Check for L+R simultaneous press"""
         left = user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000
         right = user32.GetAsyncKeyState(VK_RBUTTON) & 0x8000
 
         if left and right:
             now = time.time()
             if self._both_were_up and not self._popup_shown:
-                if now - self._last_trigger > 0.5:  # Debounce 500ms
+                if now - self._last_trigger > 0.5:
                     self._both_were_up = False
                     self._last_trigger = now
                     pt = POINT()
