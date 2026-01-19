@@ -195,43 +195,47 @@ class LauncherPopup:
         return [i for i in self._current_items
                 if not i.get("separator") and self._fuzzy_match(query, i.get("name", ""))]
 
-    def _show_search(self):
-        """Show search field"""
-        if self._search_frame:
-            return
-
+    def _create_search_field(self):
+        """Create permanent search field at bottom"""
         self._search_frame = tk.Frame(self._frame, bg=self.BG)
-        self._search_frame.pack(fill="x", pady=(0, 4), before=self._frame.winfo_children()[0])
+        self._search_frame.pack(fill="x", pady=(4, 0))
 
         self._search_entry = tk.Entry(
             self._search_frame,
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 10),
             bg="#2d2d44",
             fg=self.FG,
             insertbackground=self.FG,
-            relief="flat",
-            width=28
+            relief="flat"
         )
         self._search_entry.pack(fill="x", padx=2)
+        self._search_entry.insert(0, "🔍 Search...")
+        self._search_entry.config(fg="#666666")
+        self._search_entry.bind("<FocusIn>", self._on_search_focus)
+        self._search_entry.bind("<FocusOut>", self._on_search_blur)
         self._search_entry.bind("<KeyRelease>", self._on_search_change)
         self._search_entry.bind("<Return>", self._on_search_enter)
-        self._search_entry.bind("<Escape>", lambda e: self._hide_search())
-        self._search_entry.focus()
 
-    def _hide_search(self):
-        """Hide search and restore items"""
-        if self._search_frame:
-            self._search_frame.destroy()
-            self._search_frame = None
-            self._search_entry = None
-            self._rebuild_items(self._current_items)
-            self.win.focus_force()
+    def _on_search_focus(self, event=None):
+        """Clear placeholder on focus"""
+        if self._search_entry.get() == "🔍 Search...":
+            self._search_entry.delete(0, tk.END)
+            self._search_entry.config(fg=self.FG)
+
+    def _on_search_blur(self, event=None):
+        """Restore placeholder if empty"""
+        if not self._search_entry.get():
+            self._search_entry.insert(0, "🔍 Search...")
+            self._search_entry.config(fg="#666666")
 
     def _on_search_change(self, event=None):
         """Handle search text change"""
         if not self._search_entry:
             return
         query = self._search_entry.get().strip()
+        # Ignore placeholder
+        if query == "🔍 Search...":
+            query = ""
         filtered_items = self._filter_items(query)
         # Also filter clipboard
         filtered_clips = [c for c in self._current_clips
@@ -249,11 +253,12 @@ class LauncherPopup:
                     return
 
     def _on_key(self, event):
-        """Handle keypress - show search on typing"""
+        """Handle keypress - focus search on typing"""
         if event.char and event.char.isalnum() and not self._add_form:
-            self._show_search()
             if self._search_entry:
-                self._search_entry.insert("end", event.char)
+                self._on_search_focus()
+                self._search_entry.focus()
+                self._search_entry.insert(tk.END, event.char)
 
     def _rebuild_items(self, items, clips=None):
         """Rebuild item list and optionally clips"""
@@ -333,6 +338,9 @@ class LauncherPopup:
                 if not item.get("separator"):
                     idx += 1
 
+        # Add button (above clipboard)
+        self._create_add_button(self._frame)
+
         # Clipboard Section (if any)
         self._clip_labels = []
         if clips:
@@ -342,8 +350,8 @@ class LauncherPopup:
                 if lbl:
                     self._clip_labels.append(lbl)
 
-        # Add button
-        self._create_add_button(self._frame)
+        # Search field at bottom
+        self._create_search_field()
 
         # Size and position
         self.win.update_idletasks()
@@ -542,8 +550,12 @@ class LauncherPopup:
 
     def _on_escape(self):
         """Handle Escape key"""
-        if self._search_frame:
-            self._hide_search()
+        # Clear search first if has content
+        if self._search_entry and self._search_entry.get() and self._search_entry.get() != "🔍 Search...":
+            self._search_entry.delete(0, tk.END)
+            self._on_search_blur()
+            self._rebuild_items(self._current_items, self._current_clips[:3])
+            self.win.focus_force()
         elif self._add_form:
             self._hide_add_form()
         else:
