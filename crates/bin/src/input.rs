@@ -166,36 +166,39 @@ impl InputListener {
 
             log::info!("Monitoring {} mouse device(s)", devices.len());
 
-            // Set devices to non-blocking mode using fcntl
-            for device in &devices {
-                let fd = device.as_raw_fd();
-                unsafe {
-                    let flags = libc::fcntl(fd, libc::F_GETFL);
-                    if flags >= 0 {
-                        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                    }
-                }
-            }
+            // Create poll file descriptors
+            let mut pollfds: Vec<libc::pollfd> = devices
+                .iter()
+                .map(|d| libc::pollfd {
+                    fd: d.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                })
+                .collect();
 
             loop {
-                let mut had_events = false;
+                // Wait for events on any device (100ms timeout)
+                let ret = unsafe {
+                    libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, 100)
+                };
 
-                for device in &mut devices {
-                    if let Ok(events) = device.fetch_events() {
-                        for event in events {
-                            if let InputEventKind::Key(key) = event.kind() {
-                                // value: 1 = press, 0 = release
-                                let pressed = event.value() == 1;
-                                self.handle_button(key, pressed);
-                                had_events = true;
+                if ret <= 0 {
+                    continue; // Timeout or error, try again
+                }
+
+                // Check which devices have events
+                for (i, pollfd) in pollfds.iter_mut().enumerate() {
+                    if pollfd.revents & libc::POLLIN != 0 {
+                        if let Ok(events) = devices[i].fetch_events() {
+                            for event in events {
+                                if let InputEventKind::Key(key) = event.kind() {
+                                    let pressed = event.value() == 1;
+                                    self.handle_button(key, pressed);
+                                }
                             }
                         }
                     }
-                }
-
-                // Sleep a bit if no events to avoid busy-waiting
-                if !had_events {
-                    thread::sleep(Duration::from_millis(10));
+                    pollfd.revents = 0; // Reset for next poll
                 }
             }
         })
