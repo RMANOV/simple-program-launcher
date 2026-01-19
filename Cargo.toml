@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 authors = ["rmanov"]
@@ -18,8 +18,9 @@ description = "Cross-platform program launcher triggered by simultaneous L+R mou
 egui = "0.31"
 eframe = { version = "0.31", default-features = false, features = ["glow", "wayland", "x11"] }
 
-# Input - cross-platform mouse events
-rdev = "0.5"
+# Input - reads directly from /dev/input (works on Wayland + X11)
+evdev = "0.12"
+libc = "0.2"
 
 # Config
 serde = { version = "1.0", features = ["derive"] }
@@ -39,6 +40,9 @@ anyhow = "1.0"
 
 # Clipboard
 arboard = "3.4"
+
+# Math expression evaluation
+meval = "0.2"
 
 # Async (for file watching)
 notify = "8.0"

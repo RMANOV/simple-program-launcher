@@ -12,7 +12,8 @@ path = "src/main.rs"
 [dependencies]
 launcher-core = { path = "../core" }
 launcher-ui = { path = "../ui" }
-rdev.workspace = true
+evdev.workspace = true
+libc.workspace = true
 log.workspace = true
 env_logger.workspace = true
 anyhow.workspace = true

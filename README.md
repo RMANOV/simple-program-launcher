@@ -32,6 +32,11 @@
 - **10,000 Entry History** - Never lose copied text again
 - **Fuzzy Search** - Type `hlo` to find `hello world`
 - **Pin Important Items** - Keep frequently-used snippets accessible
+- **Usage Tracking** - Items sorted by paste frequency
+- **Smart Eviction** - Least-used items removed first when at limit
+- **Math Preview** - See `2+2 = 4` for math expressions
+- **Tooltips** - Hover for full text on long entries
+- **Persistent History** - Survives restarts (`~/.config/.../clipboard.json`)
 - **Password Detection** - Auto-skips password-like content
 
 ### Customization
@@ -67,6 +72,12 @@ git clone https://github.com/RMANOV/simple-program-launcher.git
 cd simple-program-launcher
 ./scripts/install_linux.sh
 ```
+
+> **Note:** On Linux, add your user to the `input` group:
+> ```bash
+> sudo usermod -aG input $USER
+> # Log out and back in
+> ```
 
 ### Windows (Python - Zero Dependencies)
 
@@ -106,7 +117,7 @@ simple_program_launcher/
 │   ├── core/           # Config, usage tracking, platform APIs
 │   │   └── platform/   # Linux: xbel, Windows: Registry, macOS: plist
 │   ├── ui/             # egui dark-themed popup
-│   └── bin/            # rdev mouse listener + main loop
+│   └── bin/            # evdev mouse listener + main loop (Wayland + X11)
 ├── launcher.pyw        # Python/Windows standalone
 ├── config/             # Default configuration
 └── scripts/            # Install scripts (systemd/Registry/launchd)
@@ -117,7 +128,7 @@ simple_program_launcher/
 | Component | Rust (Linux/macOS) | Python (Windows) |
 |-----------|-------------------|------------------|
 | GUI | egui + glow | tkinter |
-| Mouse Events | rdev | pynput |
+| Mouse Events | evdev (Wayland + X11) | pynput |
 | Clipboard | arboard | ctypes/win32 |
 | Config | serde_json + notify | json |
 | Recent Files | recently-used.xbel | Recent folder |
@@ -204,6 +215,10 @@ cargo test
 - [x] Instant clipboard search
 - [x] Pin clipboard entries
 - [x] Fuzzy search
+- [x] Clipboard usage tracking & smart sorting
+- [x] Math expression preview
+- [x] Persistent clipboard history
+- [x] Tooltips for long entries
 
 ---
 

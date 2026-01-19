@@ -2,12 +2,16 @@
 
 use crate::theme::{dark_theme, ThemeColors};
 use arboard::Clipboard;
+use chrono::Utc;
 use eframe::egui::{self, CentralPanel, Context, Key, RichText, ScrollArea, Vec2};
 use launcher_core::{
     config::{ItemType, LaunchItem},
     platform::{get_data_source, PlatformDataSource},
     ConfigManager, UsageTracker,
 };
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 /// Default display limit for clipboard in UI (scrollable for more)
@@ -81,33 +85,148 @@ fn fuzzy_search_clipboard(query: &str, history: &[ClipboardEntry], limit: usize)
     scored.into_iter().take(limit).map(|(_, e)| e.clone()).collect()
 }
 
-/// Clipboard history entry
-#[derive(Clone, Debug)]
+/// Clipboard history entry with usage tracking
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClipboardEntry {
     pub text: String,
-    pub preview: String, // Truncated for display
+    #[serde(skip)]
+    pub preview: String,
+    #[serde(default)]
+    pub count: u32,
+    #[serde(default)]
+    pub last_used: Option<String>,
 }
 
 impl ClipboardEntry {
     pub fn new(text: String) -> Self {
-        let preview = if text.len() > 50 {
-            format!("{}...", &text[..47])
-        } else {
-            text.clone()
+        let mut entry = Self {
+            text,
+            preview: String::new(),
+            count: 0,
+            last_used: Some(Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()),
         };
-        Self { text, preview }
+        entry.update_preview();
+        entry
+    }
+
+    /// Update the preview string based on current state
+    fn update_preview(&mut self) {
+        let truncated = if self.text.len() > 40 {
+            format!("{}...", &self.text[..37])
+        } else {
+            self.text.clone()
+        }
+        .replace('\n', " ");
+
+        let mut preview = truncated;
+        if self.count > 0 {
+            preview.push_str(&format!(" ({})", self.count));
+        }
+        if let Some(result) = eval_math(&self.text) {
+            preview.push_str(&format!(" = {}", result));
+        }
+        self.preview = preview;
     }
 
     /// Check if this looks like a password (simple heuristic)
     pub fn looks_like_password(&self) -> bool {
         let text = &self.text;
-        // High entropy short strings, or strings with "password" patterns
         text.len() >= 8
             && text.len() <= 32
             && text.chars().any(|c| c.is_ascii_uppercase())
             && text.chars().any(|c| c.is_ascii_lowercase())
             && text.chars().any(|c| c.is_ascii_digit())
             && !text.contains(' ')
+    }
+}
+
+/// Evaluate simple math expressions
+fn eval_math(text: &str) -> Option<f64> {
+    let expr = text
+        .trim()
+        .replace('x', "*")
+        .replace('×', "*")
+        .replace('÷', "/")
+        .replace(',', ".")
+        .replace(' ', "");
+
+    // Must contain digits and at least one operator
+    if !expr.chars().any(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    if !expr.chars().any(|c| "+-*/".contains(c)) {
+        return None;
+    }
+    // Only allow safe math characters
+    if !expr.chars().all(|c| "0123456789.+-*/()".contains(c)) {
+        return None;
+    }
+
+    meval::eval_str(&expr).ok()
+}
+
+/// Get the path to clipboard history JSON file
+fn clipboard_file_path() -> PathBuf {
+    directories::ProjectDirs::from("com", "launcher", "simple-program-launcher")
+        .map(|dirs| dirs.config_dir().join("clipboard.json"))
+        .unwrap_or_else(|| PathBuf::from("clipboard.json"))
+}
+
+/// Load clipboard history from disk
+fn load_clipboard_history() -> Vec<ClipboardEntry> {
+    let path = clipboard_file_path();
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    match fs::read_to_string(&path) {
+        Ok(content) => {
+            let mut entries: Vec<ClipboardEntry> =
+                serde_json::from_str(&content).unwrap_or_default();
+            // Update previews (since they're skipped in serialization)
+            for entry in &mut entries {
+                entry.update_preview();
+            }
+            // Sort by count DESC, then last_used DESC
+            entries.sort_by(|a, b| {
+                b.count
+                    .cmp(&a.count)
+                    .then_with(|| b.last_used.cmp(&a.last_used))
+            });
+            entries
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Save clipboard history to disk with smart eviction
+fn save_clipboard_history(history: &[ClipboardEntry], max_size: usize) {
+    let path = clipboard_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let mut to_save: Vec<ClipboardEntry> = history.to_vec();
+
+    // Smart eviction: if over limit, remove items with lowest (count, last_used)
+    if to_save.len() > max_size {
+        to_save.sort_by(|a, b| {
+            a.count
+                .cmp(&b.count)
+                .then_with(|| a.last_used.cmp(&b.last_used))
+        });
+        // Remove oldest/least-used entries
+        to_save.drain(0..to_save.len() - max_size);
+        // Re-sort by count DESC, last_used DESC for display
+        to_save.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| b.last_used.cmp(&a.last_used))
+        });
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(&to_save) {
+        let _ = fs::write(&path, json);
     }
 }
 
@@ -158,12 +277,15 @@ impl LauncherApp {
             .recent_files(max_frequent_documents)
             .unwrap_or_default();
 
+        // Load clipboard history from disk
+        let clipboard_history = load_clipboard_history();
+
         Self {
             config_manager,
             usage_tracker,
             platform,
             clipboard,
-            clipboard_history: Vec::new(),
+            clipboard_history,
             last_clipboard_content: String::new(),
             frequent_programs,
             recent_documents,
@@ -204,21 +326,38 @@ impl LauncherApp {
                 if !text.is_empty() && text != self.last_clipboard_content {
                     self.last_clipboard_content = text.clone();
 
-                    let entry = ClipboardEntry::new(text);
-
                     // Skip password-like content
-                    if !entry.looks_like_password() {
-                        // Remove duplicate if exists
-                        self.clipboard_history
-                            .retain(|e| e.text != entry.text);
-
-                        // Add to front
-                        self.clipboard_history.insert(0, entry);
-
-                        // Trim to max size from config
-                        let max_history = self.config_manager.get().max_clipboard_history;
-                        self.clipboard_history.truncate(max_history);
+                    let temp_entry = ClipboardEntry::new(text.clone());
+                    if temp_entry.looks_like_password() {
+                        return;
                     }
+
+                    // Check if entry already exists
+                    if let Some(existing) = self
+                        .clipboard_history
+                        .iter_mut()
+                        .find(|e| e.text == text)
+                    {
+                        // Update last_used timestamp
+                        existing.last_used =
+                            Some(Utc::now().format("%Y-%m-%d %H:%M:%S").to_string());
+                        existing.update_preview();
+                    } else {
+                        // Add new entry
+                        let entry = ClipboardEntry::new(text);
+                        self.clipboard_history.insert(0, entry);
+                    }
+
+                    // Save to disk with smart eviction
+                    let max_history = self.config_manager.get().max_clipboard_history;
+                    save_clipboard_history(&self.clipboard_history, max_history);
+
+                    // Re-sort by count DESC, last_used DESC
+                    self.clipboard_history.sort_by(|a, b| {
+                        b.count
+                            .cmp(&a.count)
+                            .then_with(|| b.last_used.cmp(&a.last_used))
+                    });
                 }
             }
         }
@@ -247,8 +386,20 @@ impl LauncherApp {
         self.should_close = true;
     }
 
-    /// Paste clipboard item
+    /// Paste clipboard item and increment usage count
     fn paste_clipboard(&mut self, text: &str) {
+        // Increment count for the pasted item
+        if let Some(entry) = self.clipboard_history.iter_mut().find(|e| e.text == text) {
+            entry.count += 1;
+            entry.last_used = Some(Utc::now().format("%Y-%m-%d %H:%M:%S").to_string());
+            entry.update_preview();
+        }
+
+        // Save updated history
+        let max_history = self.config_manager.get().max_clipboard_history;
+        save_clipboard_history(&self.clipboard_history, max_history);
+
+        // Set clipboard and close
         if let Some(ref mut clipboard) = self.clipboard {
             let _ = clipboard.set_text(text);
         }
@@ -633,6 +784,11 @@ impl eframe::App for LauncherApp {
                                 self.pending_paste = Some(entry.text.clone());
                             }
 
+                            // Show full text on hover for long entries
+                            if entry.text.len() > 40 {
+                                response.on_hover_text(&entry.text);
+                            }
+
                             // Pin button
                             if ui.small_button("pin").clicked() {
                                 self.pending_pin_clipboard = Some(entry.text.clone());
@@ -671,6 +827,11 @@ impl eframe::App for LauncherApp {
 
                                 if response.clicked() {
                                     self.pending_paste = Some(text.clone());
+                                }
+
+                                // Show full text on hover for long entries
+                                if text.len() > 40 {
+                                    response.on_hover_text(text);
                                 }
 
                                 // Unpin button

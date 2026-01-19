@@ -1,6 +1,7 @@
-//! Mouse input listener using rdev for cross-platform event capture
+//! Mouse input listener using evdev for Linux (works on both X11 and Wayland)
 
-use rdev::{listen, Button, Event, EventType};
+use evdev::{Device, InputEventKind, Key};
+use std::os::unix::io::AsRawFd;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -9,7 +10,7 @@ use std::time::{Duration, Instant};
 /// Trigger event sent when L+R click is detected
 #[derive(Debug, Clone)]
 pub struct TriggerEvent {
-    /// Mouse position at trigger time
+    /// Mouse position at trigger time (always 0,0 with evdev - use cursor position from GUI)
     pub position: (f64, f64),
     /// Timestamp
     pub timestamp: Instant,
@@ -19,7 +20,6 @@ pub struct TriggerEvent {
 struct MouseState {
     left_pressed: Option<Instant>,
     right_pressed: Option<Instant>,
-    last_position: (f64, f64),
     last_trigger: Option<Instant>,
 }
 
@@ -28,10 +28,24 @@ impl Default for MouseState {
         Self {
             left_pressed: None,
             right_pressed: None,
-            last_position: (0.0, 0.0),
             last_trigger: None,
         }
     }
+}
+
+/// Find all mouse devices (devices that support BTN_LEFT)
+fn find_mouse_devices() -> Vec<Device> {
+    evdev::enumerate()
+        .filter_map(|(_, device)| {
+            if let Some(keys) = device.supported_keys() {
+                if keys.contains(Key::BTN_LEFT) {
+                    log::info!("Found mouse device: {:?}", device.name());
+                    return Some(device);
+                }
+            }
+            None
+        })
+        .collect()
 }
 
 /// Input listener that detects simultaneous L+R mouse clicks
@@ -97,73 +111,92 @@ impl InputListener {
         state.right_pressed = None;
 
         Some(TriggerEvent {
-            position: state.last_position,
+            position: (0.0, 0.0), // evdev doesn't provide absolute position
             timestamp: now,
         })
     }
 
-    /// Handle a mouse event
-    fn handle_event(&self, event: &Event) {
-        match event.event_type {
-            EventType::ButtonPress(Button::Left) => {
+    /// Handle a button event
+    fn handle_button(&self, key: Key, pressed: bool) {
+        match key {
+            Key::BTN_LEFT => {
                 if let Ok(mut state) = self.state.lock() {
-                    state.left_pressed = Some(Instant::now());
+                    state.left_pressed = if pressed { Some(Instant::now()) } else { None };
                 }
-                if let Some(trigger) = self.check_trigger() {
-                    let _ = self.trigger_tx.send(trigger);
+                if pressed {
+                    if let Some(trigger) = self.check_trigger() {
+                        let _ = self.trigger_tx.send(trigger);
+                    }
                 }
             }
-            EventType::ButtonPress(Button::Right) => {
+            Key::BTN_RIGHT => {
                 if let Ok(mut state) = self.state.lock() {
-                    state.right_pressed = Some(Instant::now());
+                    state.right_pressed = if pressed { Some(Instant::now()) } else { None };
                 }
-                if let Some(trigger) = self.check_trigger() {
-                    let _ = self.trigger_tx.send(trigger);
-                }
-            }
-            EventType::ButtonRelease(Button::Left) => {
-                if let Ok(mut state) = self.state.lock() {
-                    state.left_pressed = None;
-                }
-            }
-            EventType::ButtonRelease(Button::Right) => {
-                if let Ok(mut state) = self.state.lock() {
-                    state.right_pressed = None;
-                }
-            }
-            EventType::MouseMove { x, y } => {
-                if let Ok(mut state) = self.state.lock() {
-                    state.last_position = (x, y);
+                if pressed {
+                    if let Some(trigger) = self.check_trigger() {
+                        let _ = self.trigger_tx.send(trigger);
+                    }
                 }
             }
             _ => {}
         }
     }
 
-    /// Start listening for mouse events (blocking)
+    /// Start listening for mouse events
     ///
     /// This spawns a background thread that processes events and returns immediately.
     /// The thread will run until the process exits.
+    ///
+    /// Note: Requires read access to /dev/input/event* devices.
+    /// User typically needs to be in the 'input' group: sudo usermod -aG input $USER
     pub fn start(self) -> thread::JoinHandle<()> {
-        let state = self.state.clone();
-        let threshold = self.simultaneous_threshold;
-        let debounce = self.debounce_duration;
-        let trigger_tx = self.trigger_tx.clone();
-
         thread::spawn(move || {
-            let listener = InputListener {
-                state,
-                simultaneous_threshold: threshold,
-                debounce_duration: debounce,
-                trigger_tx,
-            };
+            log::info!("Starting evdev mouse event listener...");
 
-            log::info!("Starting mouse event listener...");
+            let mut devices = find_mouse_devices();
 
-            if let Err(e) = listen(move |event| {
-                listener.handle_event(&event);
-            }) {
-                log::error!("Failed to listen for events: {:?}", e);
+            if devices.is_empty() {
+                log::error!(
+                    "No mouse devices found. Make sure you have read access to /dev/input/event*. \
+                     Try: sudo usermod -aG input $USER (then log out and back in)"
+                );
+                return;
+            }
+
+            log::info!("Monitoring {} mouse device(s)", devices.len());
+
+            // Set devices to non-blocking mode using fcntl
+            for device in &devices {
+                let fd = device.as_raw_fd();
+                unsafe {
+                    let flags = libc::fcntl(fd, libc::F_GETFL);
+                    if flags >= 0 {
+                        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+                    }
+                }
+            }
+
+            loop {
+                let mut had_events = false;
+
+                for device in &mut devices {
+                    if let Ok(events) = device.fetch_events() {
+                        for event in events {
+                            if let InputEventKind::Key(key) = event.kind() {
+                                // value: 1 = press, 0 = release
+                                let pressed = event.value() == 1;
+                                self.handle_button(key, pressed);
+                                had_events = true;
+                            }
+                        }
+                    }
+                }
+
+                // Sleep a bit if no events to avoid busy-waiting
+                if !had_events {
+                    thread::sleep(Duration::from_millis(10));
+                }
             }
         })
     }
@@ -178,18 +211,10 @@ mod tests {
         let (listener, rx) = InputListener::new(50, 500);
 
         // Simulate left press
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonPress(Button::Left),
-        });
+        listener.handle_button(Key::BTN_LEFT, true);
 
         // Simulate right press within threshold
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonPress(Button::Right),
-        });
+        listener.handle_button(Key::BTN_RIGHT, true);
 
         // Should receive trigger
         assert!(rx.try_recv().is_ok());
@@ -200,42 +225,18 @@ mod tests {
         let (listener, rx) = InputListener::new(50, 1000);
 
         // First trigger
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonPress(Button::Left),
-        });
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonPress(Button::Right),
-        });
+        listener.handle_button(Key::BTN_LEFT, true);
+        listener.handle_button(Key::BTN_RIGHT, true);
 
         assert!(rx.try_recv().is_ok());
 
         // Release buttons
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonRelease(Button::Left),
-        });
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonRelease(Button::Right),
-        });
+        listener.handle_button(Key::BTN_LEFT, false);
+        listener.handle_button(Key::BTN_RIGHT, false);
 
         // Try to trigger again immediately (should be debounced)
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonPress(Button::Left),
-        });
-        listener.handle_event(&Event {
-            time: std::time::SystemTime::now(),
-            name: None,
-            event_type: EventType::ButtonPress(Button::Right),
-        });
+        listener.handle_button(Key::BTN_LEFT, true);
+        listener.handle_button(Key::BTN_RIGHT, true);
 
         assert!(rx.try_recv().is_err()); // Should be debounced
     }
