@@ -1,12 +1,16 @@
 {
   "items": {
     "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_mapping_studio.bat": {
-      "count": 10,
-      "last": "2026-01-19T13:58:45.150904"
+      "count": 11,
+      "last": "2026-01-19T14:51:01.104118"
     },
     "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat": {
       "count": 3,
       "last": "2026-01-19T13:58:53.247467"
+    },
+    "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_gui.bat": {
+      "count": 2,
+      "last": "2026-01-19T15:00:07.303555"
     }
   }
 }
