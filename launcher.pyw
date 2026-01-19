@@ -203,10 +203,9 @@ class LauncherPopup:
             return
 
         items = self._load_items()
-        mfu = self._get_mfu(MFU_COUNT)
-        # Filter pinned to exclude items already in MFU
-        mfu_paths = {m.get("path") for m in mfu}
-        items = [i for i in items if i.get("separator") or i.get("path") not in mfu_paths]
+        # Filter MFU to exclude items already in PINNED
+        pinned_paths = {i.get("path") for i in items if not i.get("separator")}
+        mfu = [m for m in self._get_mfu(MFU_COUNT) if m.get("path") not in pinned_paths]
         all_clips = self._load_clips()  # Already sorted by count
         clips = all_clips[:10]  # Show top 10 by usage
 
