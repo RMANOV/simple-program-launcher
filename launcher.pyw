@@ -201,6 +201,51 @@ class LauncherPopup:
         except Exception as e:
             print(f"Paste error: {e}")
 
+    # ==================== HELPERS ====================
+    def _eval_math(self, text):
+        """Try to evaluate text as math expression"""
+        try:
+            # Clean up common math symbols
+            expr = text.strip().replace('x', '*').replace('×', '*').replace('÷', '/')
+            expr = expr.replace(',', '.').replace(' ', '')
+            # Only allow safe chars
+            if not all(c in '0123456789.+-*/()' for c in expr):
+                return None
+            if not expr or not any(c.isdigit() for c in expr):
+                return None
+            result = eval(expr)
+            if isinstance(result, (int, float)) and result != float(expr.replace('.', '').replace('-', '') or 0):
+                return round(result, 4) if isinstance(result, float) else result
+        except:
+            pass
+        return None
+
+    def _show_tooltip(self, widget, text):
+        """Show tooltip near widget"""
+        if hasattr(self, '_tooltip') and self._tooltip:
+            self._tooltip.destroy()
+        # Truncate very long text
+        display = text[:500] + "..." if len(text) > 500 else text
+        self._tooltip = tk.Toplevel(self.win)
+        self._tooltip.overrideredirect(True)
+        self._tooltip.attributes("-topmost", True)
+        lbl = tk.Label(
+            self._tooltip, text=display, font=("Segoe UI", 9),
+            bg="#ffffcc", fg="#000000", relief="solid", borderwidth=1,
+            wraplength=300, justify="left", padx=4, pady=2
+        )
+        lbl.pack()
+        # Position near widget
+        x = widget.winfo_rootx() + widget.winfo_width() + 5
+        y = widget.winfo_rooty()
+        self._tooltip.geometry(f"+{x}+{y}")
+
+    def _hide_tooltip(self):
+        """Hide tooltip"""
+        if hasattr(self, '_tooltip') and self._tooltip:
+            self._tooltip.destroy()
+            self._tooltip = None
+
     # ==================== UI ====================
     def show(self, x, y):
         if self.win or self._closing:
@@ -338,7 +383,7 @@ class LauncherPopup:
         return lbl
 
     def _create_clip_item(self, clip_obj):
-        """Create clipboard item with usage count"""
+        """Create clipboard item with usage count and math preview"""
         text = clip_obj.get("text", "")
         count = clip_obj.get("count", 0)
         # Truncate long text
@@ -347,6 +392,10 @@ class LauncherPopup:
         # Add count if > 0
         if count > 0:
             display = f"{display} ({count})"
+        # Check for math expression
+        math_result = self._eval_math(text)
+        if math_result is not None:
+            display = f"{display} = {math_result}"
 
         lbl = tk.Label(
             self._frame,
@@ -361,8 +410,17 @@ class LauncherPopup:
         )
         lbl.pack(fill="x", pady=0)
 
-        lbl.bind("<Enter>", lambda e: lbl.configure(bg=self.HOVER))
-        lbl.bind("<Leave>", lambda e: lbl.configure(bg=self.BG))
+        # Hover: highlight + tooltip for long text
+        def on_enter(e):
+            lbl.configure(bg=self.HOVER)
+            if len(text) > 35:
+                self._show_tooltip(lbl, text)
+        def on_leave(e):
+            lbl.configure(bg=self.BG)
+            self._hide_tooltip()
+
+        lbl.bind("<Enter>", on_enter)
+        lbl.bind("<Leave>", on_leave)
         lbl.bind("<Button-1>", lambda e, t=text: self._paste_clip(t))
         return lbl
 
