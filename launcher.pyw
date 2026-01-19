@@ -49,12 +49,9 @@ class LauncherPopup:
         self.win = None
         self._closing = False
         self._add_form = None
-        self._search_frame = None
-        self._search_entry = None
         self._current_items = []
         self._item_labels = []
         self._clip_labels = []
-        self._current_clips = []
         self._last_clip = ""
 
     # ==================== CONFIG ====================
@@ -128,11 +125,16 @@ class LauncherPopup:
 
     # ==================== CLIPBOARD ====================
     def _load_clips(self):
-        """Load clipboard history"""
+        """Load clipboard history sorted by usage count"""
         if CLIP_FILE.exists():
             try:
                 with open(CLIP_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # Handle old format (list of strings)
+                    if data and isinstance(data[0], str):
+                        return [{"text": t, "count": 0, "last": ""} for t in data]
+                    # Sort by count descending
+                    return sorted(data, key=lambda x: x.get("count", 0), reverse=True)
             except:
                 pass
         return []
@@ -151,18 +153,36 @@ class LauncherPopup:
             text = self.root.clipboard_get()
             if text and text != self._last_clip and len(text) < 1000:
                 clips = self._load_clips()
-                # Remove duplicate if exists
-                if text in clips:
-                    clips.remove(text)
-                clips.append(text)
+                now = datetime.now().isoformat()
+                # Find existing or create new
+                found = False
+                for c in clips:
+                    if c["text"] == text:
+                        c["last"] = now
+                        found = True
+                        break
+                if not found:
+                    clips.append({"text": text, "count": 0, "last": now})
                 self._save_clips(clips)
                 self._last_clip = text
         except tk.TclError:
             pass  # Clipboard empty or non-text
         self.root.after(CLIP_POLL_MS, self._poll_clipboard)
 
+    def _track_clip_usage(self, text):
+        """Track clipboard paste usage"""
+        clips = self._load_clips()
+        now = datetime.now().isoformat()
+        for c in clips:
+            if c["text"] == text:
+                c["count"] = c.get("count", 0) + 1
+                c["last"] = now
+                self._save_clips(clips)
+                return
+
     def _paste_clip(self, text):
         """Paste text to active window"""
+        self._track_clip_usage(text)  # Track usage before hide
         self.hide()
         try:
             self.root.clipboard_clear()
@@ -177,123 +197,6 @@ class LauncherPopup:
         except Exception as e:
             print(f"Paste error: {e}")
 
-    # ==================== SEARCH ====================
-    def _fuzzy_match(self, query, text):
-        """Simple fuzzy match - all chars in order"""
-        if not query:
-            return True
-        qi = 0
-        for c in text.lower():
-            if qi < len(query) and c == query[qi].lower():
-                qi += 1
-        return qi == len(query)
-
-    def _filter_items(self, query):
-        """Filter items by fuzzy search"""
-        if not query:
-            return self._current_items
-        return [i for i in self._current_items
-                if not i.get("separator") and self._fuzzy_match(query, i.get("name", ""))]
-
-    def _create_search_field(self):
-        """Create permanent search field at bottom"""
-        self._search_frame = tk.Frame(self._frame, bg=self.BG)
-        self._search_frame.pack(fill="x", pady=(4, 0))
-
-        self._search_entry = tk.Entry(
-            self._search_frame,
-            font=("Segoe UI", 10),
-            bg="#2d2d44",
-            fg=self.FG,
-            insertbackground=self.FG,
-            relief="flat"
-        )
-        self._search_entry.pack(fill="x", padx=2)
-        self._search_entry.insert(0, "🔍 Search...")
-        self._search_entry.config(fg="#666666")
-        self._search_entry.bind("<FocusIn>", self._on_search_focus)
-        self._search_entry.bind("<FocusOut>", self._on_search_blur)
-        self._search_entry.bind("<KeyRelease>", self._on_search_change)
-        self._search_entry.bind("<Return>", self._on_search_enter)
-
-    def _on_search_focus(self, event=None):
-        """Clear placeholder on focus"""
-        if self._search_entry.get() == "🔍 Search...":
-            self._search_entry.delete(0, tk.END)
-            self._search_entry.config(fg=self.FG)
-
-    def _on_search_blur(self, event=None):
-        """Restore placeholder if empty"""
-        if not self._search_entry.get():
-            self._search_entry.insert(0, "🔍 Search...")
-            self._search_entry.config(fg="#666666")
-
-    def _on_search_change(self, event=None):
-        """Handle search text change"""
-        if not self._search_entry:
-            return
-        query = self._search_entry.get().strip()
-        # Ignore placeholder
-        if query == "🔍 Search...":
-            query = ""
-        filtered_items = self._filter_items(query)
-        # Also filter clipboard
-        filtered_clips = [c for c in self._current_clips
-                         if self._fuzzy_match(query, c)] if query else self._current_clips[:3]
-        self._rebuild_items(filtered_items, filtered_clips)
-
-    def _on_search_enter(self, event=None):
-        """Launch first item on Enter"""
-        if self._item_labels:
-            # Find first non-separator
-            for lbl in self._item_labels:
-                path = lbl._path if hasattr(lbl, "_path") else None
-                if path:
-                    self._launch(path)
-                    return
-
-    def _on_key(self, event):
-        """Handle keypress - focus search on typing"""
-        if event.char and event.char.isalnum() and not self._add_form:
-            if self._search_entry:
-                self._on_search_focus()
-                self._search_entry.focus()
-                self._search_entry.insert(tk.END, event.char)
-
-    def _rebuild_items(self, items, clips=None):
-        """Rebuild item list and optionally clips"""
-        # Clear existing items
-        for lbl in self._item_labels:
-            lbl.destroy()
-        self._item_labels = []
-
-        # Clear existing clips
-        for lbl in self._clip_labels:
-            lbl.destroy()
-        self._clip_labels = []
-        if hasattr(self, '_clip_header') and self._clip_header:
-            self._clip_header.destroy()
-            self._clip_header = None
-
-        # Rebuild items
-        for i, item in enumerate(items):
-            lbl = self._create_item_label(item, i)
-            if lbl:
-                self._item_labels.append(lbl)
-
-        # Rebuild clips
-        if clips:
-            self._clip_header = self._create_section_header("📋 CLIPBOARD")
-            for clip_text in clips[:10]:  # Max 10 in search results
-                lbl = self._create_clip_item(clip_text)
-                if lbl:
-                    self._clip_labels.append(lbl)
-
-        # Resize window
-        self.win.update_idletasks()
-        h = self.win.winfo_reqheight()
-        self.win.geometry(f"{self.WIDTH}x{h}")
-
     # ==================== UI ====================
     def show(self, x, y):
         if self.win or self._closing:
@@ -301,10 +204,8 @@ class LauncherPopup:
 
         items = self._load_items()
         mfu = self._get_mfu(MFU_COUNT)
-        all_clips = self._load_clips()
-        all_clips.reverse()  # Most recent first
-        self._current_clips = all_clips
-        clips = all_clips[:3]  # Show last 3
+        all_clips = self._load_clips()  # Already sorted by count
+        clips = all_clips[:10]  # Show top 10 by usage
 
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
@@ -345,13 +246,10 @@ class LauncherPopup:
         self._clip_labels = []
         if clips:
             self._clip_header = self._create_section_header("📋 CLIPBOARD")
-            for clip_text in clips:
-                lbl = self._create_clip_item(clip_text)
+            for clip_obj in clips:
+                lbl = self._create_clip_item(clip_obj)
                 if lbl:
                     self._clip_labels.append(lbl)
-
-        # Search field at bottom
-        self._create_search_field()
 
         # Size and position
         self.win.update_idletasks()
@@ -364,7 +262,6 @@ class LauncherPopup:
 
         # Bindings
         self.win.bind("<Escape>", lambda e: self._on_escape())
-        self.win.bind("<Key>", self._on_key)
         self.win.focus_force()
 
         # Click-outside detection
@@ -434,11 +331,16 @@ class LauncherPopup:
 
         return lbl
 
-    def _create_clip_item(self, text):
-        """Create clipboard item"""
+    def _create_clip_item(self, clip_obj):
+        """Create clipboard item with usage count"""
+        text = clip_obj.get("text", "")
+        count = clip_obj.get("count", 0)
         # Truncate long text
-        display = text[:40] + "..." if len(text) > 40 else text
+        display = text[:35] + "..." if len(text) > 35 else text
         display = display.replace("\n", " ").replace("\r", "")
+        # Add count if > 0
+        if count > 0:
+            display = f"{display} ({count})"
 
         lbl = tk.Label(
             self._frame,
@@ -456,7 +358,6 @@ class LauncherPopup:
         lbl.bind("<Enter>", lambda e: lbl.configure(bg=self.HOVER))
         lbl.bind("<Leave>", lambda e: lbl.configure(bg=self.BG))
         lbl.bind("<Button-1>", lambda e, t=text: self._paste_clip(t))
-        lbl._clip_text = text  # Store for search
         return lbl
 
     def _create_add_button(self, parent):
@@ -550,13 +451,7 @@ class LauncherPopup:
 
     def _on_escape(self):
         """Handle Escape key"""
-        # Clear search first if has content
-        if self._search_entry and self._search_entry.get() and self._search_entry.get() != "🔍 Search...":
-            self._search_entry.delete(0, tk.END)
-            self._on_search_blur()
-            self._rebuild_items(self._current_items, self._current_clips[:3])
-            self.win.focus_force()
-        elif self._add_form:
+        if self._add_form:
             self._hide_add_form()
         else:
             self.hide()
