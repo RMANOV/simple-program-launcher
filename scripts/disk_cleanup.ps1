@@ -21,24 +21,44 @@ if ($NodeCount -gt 0) {
     Add-Content $LogFile "No .node files to delete"
 }
 
-# 2. Purge pip cache
+# 2. Purge pip cache (with timeout)
+Write-Host "  Cleaning pip cache..." -NoNewline
 try {
-    $PipOutput = pip cache purge 2>&1
-    if ($PipOutput -match "Files removed: (\d+) \(([^)]+)\)") {
-        Add-Content $LogFile "Purged pip cache: $($Matches[1]) files ($($Matches[2]))"
-    } else {
+    $job = Start-Job { pip cache purge 2>&1 }
+    $completed = Wait-Job $job -Timeout 30
+    if ($completed) {
+        $PipOutput = Receive-Job $job
         Add-Content $LogFile "Purged pip cache"
+        Write-Host " done" -ForegroundColor Green
+    } else {
+        Stop-Job $job
+        Add-Content $LogFile "pip cache purge timed out (30s)"
+        Write-Host " timeout" -ForegroundColor Yellow
     }
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
 } catch {
-    Add-Content $LogFile "pip cache purge skipped (pip not available)"
+    Add-Content $LogFile "pip cache purge skipped"
+    Write-Host " skipped" -ForegroundColor Yellow
 }
 
-# 3. Clean npm cache
+# 3. Clean npm cache (with timeout)
+Write-Host "  Cleaning npm cache..." -NoNewline
 try {
-    npm cache clean --force 2>$null
-    Add-Content $LogFile "Cleaned npm cache"
+    $job = Start-Job { npm cache clean --force 2>&1 }
+    $completed = Wait-Job $job -Timeout 30
+    if ($completed) {
+        Receive-Job $job | Out-Null
+        Add-Content $LogFile "Cleaned npm cache"
+        Write-Host " done" -ForegroundColor Green
+    } else {
+        Stop-Job $job
+        Add-Content $LogFile "npm cache clean timed out (30s)"
+        Write-Host " timeout" -ForegroundColor Yellow
+    }
+    Remove-Job $job -Force -ErrorAction SilentlyContinue
 } catch {
-    Add-Content $LogFile "npm cache clean skipped (npm not available)"
+    Add-Content $LogFile "npm cache clean skipped"
+    Write-Host " skipped" -ForegroundColor Yellow
 }
 
 # 4. Check for runaway Python processes (memory leak detection)
