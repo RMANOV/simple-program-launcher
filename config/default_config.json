@@ -22,7 +22,7 @@
   "max_frequent_documents": 5,
   "max_clipboard_history": 10000,
   "trigger": {
-    "simultaneous_threshold_ms": 50,
+    "simultaneous_threshold_ms": 200,
     "debounce_ms": 500
   },
   "ui": {

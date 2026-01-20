@@ -62,17 +62,10 @@ fn main() -> Result<()> {
                     trigger.position.1
                 );
 
-                // Show the popup window
-                let cm = config_manager.clone();
-                let ut = usage_tracker.clone();
-                let pos = trigger.position;
-
-                // Run popup in a separate thread to not block the input listener
-                std::thread::spawn(move || {
-                    if let Err(e) = run_popup(pos, cm, ut) {
-                        log::error!("Popup error: {}", e);
-                    }
-                });
+                // Show the popup window on main thread (required by winit)
+                if let Err(e) = run_popup(trigger.position, config_manager.clone(), usage_tracker.clone()) {
+                    log::error!("Popup error: {}", e);
+                }
             }
             Err(e) => {
                 log::error!("Trigger channel error: {}", e);

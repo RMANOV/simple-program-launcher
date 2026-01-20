@@ -254,6 +254,9 @@ pub struct LauncherApp {
     pending_paste: Option<String>,
     pending_pin_clipboard: Option<String>,
     pending_unpin_clipboard: Option<String>,
+
+    // Frame counter for delayed focus check
+    frame_count: u32,
 }
 
 impl LauncherApp {
@@ -299,6 +302,7 @@ impl LauncherApp {
             pending_paste: None,
             pending_pin_clipboard: None,
             pending_unpin_clipboard: None,
+            frame_count: 0,
         }
     }
 
@@ -898,7 +902,9 @@ impl eframe::App for LauncherApp {
         }
 
         // Click outside detection (simplified - close on focus loss)
-        if !ctx.input(|i| i.focused) {
+        // Skip first 10 frames to allow window to gain focus after mouse click
+        self.frame_count += 1;
+        if self.frame_count > 10 && !ctx.input(|i| i.focused) {
             self.should_close = true;
         }
     }

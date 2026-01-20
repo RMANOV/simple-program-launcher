@@ -94,7 +94,7 @@ pub struct TriggerConfig {
 }
 
 fn default_simultaneous_threshold() -> u64 {
-    50
+    200
 }
 
 fn default_debounce() -> u64 {

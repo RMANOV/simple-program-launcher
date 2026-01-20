@@ -91,9 +91,12 @@ impl InputListener {
             right_time.duration_since(left_time)
         };
 
+        log::debug!("check_trigger: diff={:?} threshold={:?}", diff, self.simultaneous_threshold);
         if diff > self.simultaneous_threshold {
+            log::debug!("check_trigger: REJECTED - diff too large");
             return None;
         }
+        log::info!("L+R TRIGGER DETECTED!");
 
         // Check debounce
         let now = Instant::now();
@@ -118,6 +121,7 @@ impl InputListener {
 
     /// Handle a button event
     fn handle_button(&self, key: Key, pressed: bool) {
+        log::debug!("Button event: {:?} pressed={}", key, pressed);
         match key {
             Key::BTN_LEFT => {
                 if let Ok(mut state) = self.state.lock() {
@@ -186,15 +190,26 @@ impl InputListener {
                     continue; // Timeout or error, try again
                 }
 
+                log::debug!("poll() returned {} - events ready", ret);
+
                 // Check which devices have events
                 for (i, pollfd) in pollfds.iter_mut().enumerate() {
+                    if pollfd.revents != 0 {
+                        log::debug!("Device {} revents=0x{:x}", i, pollfd.revents);
+                    }
                     if pollfd.revents & libc::POLLIN != 0 {
-                        if let Ok(events) = devices[i].fetch_events() {
-                            for event in events {
-                                if let InputEventKind::Key(key) = event.kind() {
-                                    let pressed = event.value() == 1;
-                                    self.handle_button(key, pressed);
+                        match devices[i].fetch_events() {
+                            Ok(events) => {
+                                for event in events {
+                                    log::debug!("Raw event: {:?}", event);
+                                    if let InputEventKind::Key(key) = event.kind() {
+                                        let pressed = event.value() == 1;
+                                        self.handle_button(key, pressed);
+                                    }
                                 }
+                            }
+                            Err(e) => {
+                                log::debug!("fetch_events() error on device {}: {:?}", i, e);
                             }
                         }
                     }
