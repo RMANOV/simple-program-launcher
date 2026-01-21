@@ -25,9 +25,10 @@ class POINT(ctypes.Structure):
 
 
 # Config files (same directory as script)
-CONFIG_FILE = Path(__file__).parent / "config_simple.json"
-USAGE_FILE = Path(__file__).parent / "usage_simple.json"
-CLIP_FILE = Path(__file__).parent / "clipboard_simple.json"
+# Copy config.example.json to config.json and customize
+CONFIG_FILE = Path(__file__).parent / "config.json"
+USAGE_FILE = Path(__file__).parent / "usage.json"
+CLIP_FILE = Path(__file__).parent / "clipboard.json"
 
 # Settings
 POLL_MS = 30

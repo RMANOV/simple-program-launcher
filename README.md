@@ -119,7 +119,10 @@ simple_program_launcher/
 │   ├── ui/             # egui dark-themed popup
 │   └── bin/            # evdev mouse listener + main loop (Wayland + X11)
 ├── launcher.pyw              # Python cross-platform (requires pynput)
-├── launcher_simple_win.pyw   # Python Windows-only (zero dependencies!)
+├── python_simple_windows/    # Python Windows-only (zero dependencies!)
+│   ├── launcher.pyw
+│   ├── config.example.json
+│   └── README.md
 ├── config/                   # Default configuration
 └── scripts/                  # Install scripts (systemd/Registry/launchd)
 ```
@@ -134,16 +137,17 @@ Full-featured launcher with pynput for mouse events:
 - **Features:** Structured config, pinned programs/documents/clipboard, usage tracking with recency weighting, fuzzy search
 - **Config:** `~/.config/launcher/config.json` (or `%APPDATA%\launcher\config.json`)
 
-### Simple Windows-Only (`launcher_simple_win.pyw`)
+### Simple Windows-Only (`python_simple_windows/`)
 Minimal launcher with **zero pip dependencies** - uses Windows API directly:
 - **Requires:** Python 3.8+ only (tkinter built-in)
 - **Features:** MFU tracking, clipboard history, math preview, inline add form
-- **Config:** Same directory as script (`config_simple.json`, `usage_simple.json`, `clipboard_simple.json`)
+- **Config:** Same directory as script (`config.json`, `usage.json`, `clipboard.json`)
 - **Best for:** Portable use, restricted environments, quick setup
 
 ```powershell
 # Just run it!
-pythonw launcher_simple_win.pyw
+cd python_simple_windows
+pythonw launcher.pyw
 ```
 
 ### Technology Stack
