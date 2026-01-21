@@ -1,0 +1,10 @@
+{
+  "items": [
+    {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
+    {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
+    {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
+    {"name": "CMD", "path": "cmd.exe", "icon": "⌨"},
+    {"name": "─────────────", "path": "", "icon": " ", "separator": true},
+    {"name": "Word", "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE", "icon": "📄"}
+  ]
+}
