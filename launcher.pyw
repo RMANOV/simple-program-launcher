@@ -256,7 +256,7 @@ class LauncherPopup:
         pinned_paths = {i.get("path") for i in items if not i.get("separator")}
         mfu = [m for m in self._get_mfu(MFU_COUNT) if m.get("path") not in pinned_paths]
         all_clips = self._load_clips()  # Already sorted by count
-        clips = all_clips[:10]  # Show top 10 by usage
+        clips = [c for c in all_clips if c.get("count", 0) > 2][:10]  # Only 3+ pastes
 
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
