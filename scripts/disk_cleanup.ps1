@@ -57,12 +57,16 @@ if (Test-Path $UvCachePath) {
 }
 
 # 2. Clean old temp files (>1 day old, skip locked)
+# Exclude dirs needed by apps between restarts (VSCode Insiders updater, etc.)
+$TempExclude = @('vscode-insider*')
 $TempBefore = (Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue |
     Measure-Object -Property Length -Sum).Sum
 Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue |
     Where-Object { -not $_.PSIsContainer -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
+    Where-Object { $name = $_.FullName; -not ($TempExclude | Where-Object { $name -like "*\$_*" }) } |
     Remove-Item -Force -ErrorAction SilentlyContinue
-Get-ChildItem $env:TEMP -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+Get-ChildItem $env:TEMP -Directory -Force -ErrorAction SilentlyContinue |
+    Where-Object { $name = $_.Name; -not ($TempExclude | Where-Object { $name -like $_ }) } |
     Where-Object { (Get-ChildItem $_.FullName -Recurse -Force -ErrorAction SilentlyContinue).Count -eq 0 } |
     Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
 $TempAfter = (Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue |
