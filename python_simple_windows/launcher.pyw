@@ -1,6 +1,6 @@
 """
 Mouse Launcher - L+R Click to Launch
-Минималистичен launcher без външни зависимости
+Minimal launcher with no external dependencies
 Features: MFU tracking, Clipboard history, Fuzzy search
 """
 import ctypes
@@ -67,6 +67,7 @@ class LauncherPopup:
         return [
             {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
             {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
+            {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
         ]
 
     # ==================== MFU (Most Frequently Used) ====================
