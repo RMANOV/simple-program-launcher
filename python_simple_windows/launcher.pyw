@@ -1,10 +1,7 @@
 """
-Mouse Launcher - Simple Windows-Only Version
-Minimal launcher with no external dependencies (uses Windows API directly)
-Features: MFU tracking, Clipboard history, Fuzzy search, Math preview
-
-Trigger: Simultaneous L+R mouse click
-Requirements: Python 3.8+, Windows only (no pip install needed)
+Mouse Launcher - L+R Click to Launch
+Минималистичен launcher без външни зависимости
+Features: MFU tracking, Clipboard history, Fuzzy search
 """
 import ctypes
 import json
@@ -70,7 +67,6 @@ class LauncherPopup:
         return [
             {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
             {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
-            {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
         ]
 
     # ==================== MFU (Most Frequently Used) ====================
@@ -143,7 +139,13 @@ class LauncherPopup:
         return []
 
     def _save_clips(self, clips):
-        """Save clipboard history, evicting least-used oldest items"""
+        """Save clipboard history, evicting stale and least-used items"""
+        # Time-based decay: count < 3 expires after 1 day, count >= 3 after count days
+        now = datetime.now()
+        clips = [c for c in clips if not c.get("last") or (
+            now - datetime.fromisoformat(c["last"])
+        ).days < (1 if c.get("count", 0) < 3 else c.get("count", 0))]
+        # Evict least-used oldest when over limit
         while len(clips) > MAX_CLIPS:
             victim = min(clips, key=lambda c: (c.get("count", 0), c.get("last", "")))
             clips.remove(victim)
@@ -250,8 +252,10 @@ class LauncherPopup:
         items = self._load_items()
         pinned_paths = {i.get("path") for i in items if not i.get("separator")}
         mfu = [m for m in self._get_mfu(MFU_COUNT) if m.get("path") not in pinned_paths]
-        all_clips = self._load_clips()
-        clips = all_clips[:10]
+        all_clips = self._load_clips()  # Already sorted by count
+        today = datetime.now().date().isoformat()
+        clips = [c for c in all_clips if c.get("count", 0) > 2
+                 or c.get("last", "")[:10] == today][:10]
 
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
@@ -571,7 +575,7 @@ class MouseLauncher:
 if __name__ == "__main__":
     # Single instance check using Windows mutex
     kernel32 = ctypes.windll.kernel32
-    mutex = kernel32.CreateMutexW(None, True, "MouseLauncherSimpleMutex")
+    mutex = kernel32.CreateMutexW(None, True, "MouseLauncherMutex")
     if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
         import sys
         sys.exit(0)

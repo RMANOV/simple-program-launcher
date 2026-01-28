@@ -27,3 +27,4 @@ Thumbs.db
 # Local config (use default_config.json as template)
 config.json
 usage.json
+clipboard.json
