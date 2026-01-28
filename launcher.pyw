@@ -140,7 +140,12 @@ class LauncherPopup:
         return []
 
     def _save_clips(self, clips):
-        """Save clipboard history, evicting least-used oldest items"""
+        """Save clipboard history, evicting stale and least-used items"""
+        # Time-based decay: count < 3 expires after 1 day, count >= 3 after count days
+        now = datetime.now()
+        clips = [c for c in clips if not c.get("last") or (
+            now - datetime.fromisoformat(c["last"])
+        ).days < (1 if c.get("count", 0) < 3 else c.get("count", 0))]
         # Evict least-used oldest when over limit
         while len(clips) > MAX_CLIPS:
             victim = min(clips, key=lambda c: (c.get("count", 0), c.get("last", "")))
