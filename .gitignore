@@ -28,3 +28,6 @@ Thumbs.db
 config.json
 usage.json
 clipboard.json
+
+# Press materials (local only)
+/press-releases
