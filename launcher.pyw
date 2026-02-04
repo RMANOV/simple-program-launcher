@@ -5,12 +5,24 @@ Features: MFU tracking, Clipboard history, Fuzzy search
 """
 import ctypes
 import json
+import logging
 import os
+import shutil
 import subprocess
 import time
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
+
+# Setup error logging
+LOG_FILE = Path(__file__).parent / "launcher_errors.log"
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.WARNING,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger("launcher")
 
 # Windows API
 user32 = ctypes.windll.user32
@@ -23,6 +35,7 @@ class POINT(ctypes.Structure):
 
 # Config files
 CONFIG_FILE = Path(__file__).parent / "config.json"
+CONFIG_BACKUP = Path(__file__).parent / "config.json.bak"
 USAGE_FILE = Path(__file__).parent / "usage.json"
 CLIP_FILE = Path(__file__).parent / "clipboard.json"
 
@@ -56,13 +69,17 @@ class LauncherPopup:
 
     # ==================== CONFIG ====================
     def _load_items(self):
-        """Load items fresh from config"""
-        if CONFIG_FILE.exists():
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f).get("items", [])
-            except:
-                pass
+        """Load items fresh from config, with backup recovery"""
+        for cfg_file in [CONFIG_FILE, CONFIG_BACKUP]:
+            if cfg_file.exists():
+                try:
+                    with open(cfg_file, "r", encoding="utf-8") as f:
+                        items = json.load(f).get("items", [])
+                        if cfg_file == CONFIG_BACKUP:
+                            logger.warning("Config corrupt, loaded from backup")
+                        return items
+                except Exception as e:
+                    logger.warning(f"Config load failed ({cfg_file.name}): {e}")
         return [
             {"name": "Notepad", "path": "notepad.exe", "icon": "📝"},
             {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
@@ -75,8 +92,8 @@ class LauncherPopup:
             try:
                 with open(USAGE_FILE, "r", encoding="utf-8") as f:
                     return json.load(f).get("items", {})
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Usage load failed: {e}")
         return {}
 
     def _save_usage(self, usage):
@@ -84,8 +101,8 @@ class LauncherPopup:
         try:
             with open(USAGE_FILE, "w", encoding="utf-8") as f:
                 json.dump({"items": usage}, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Usage save failed: {e}")
 
     def _track_usage(self, path):
         """Track item usage"""
@@ -135,8 +152,8 @@ class LauncherPopup:
                         return [{"text": t, "count": 0, "last": ""} for t in data]
                     # Sort by count DESC, then by last DESC (newest first among same count)
                     return sorted(data, key=lambda x: (x.get("count", 0), x.get("last", "")), reverse=True)
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Clipboard load failed: {e}")
         return []
 
     def _save_clips(self, clips):
@@ -153,8 +170,8 @@ class LauncherPopup:
         try:
             with open(CLIP_FILE, "w", encoding="utf-8") as f:
                 json.dump(clips, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Clipboard save failed: {e}")
 
     def _poll_clipboard(self):
         """Poll clipboard for changes"""
@@ -508,15 +525,18 @@ class LauncherPopup:
         if not name:
             name = Path(path).stem  # Auto-name from filename
 
-        # Load, append, save
+        # Load, append, save (with backup)
         items = self._load_items()
         items.append({"name": name, "path": path, "icon": "📌"})
 
         try:
+            # Backup before overwrite
+            if CONFIG_FILE.exists():
+                shutil.copy(CONFIG_FILE, CONFIG_BACKUP)
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump({"items": items}, f, indent=2, ensure_ascii=False)
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"Config save failed: {e}")
 
         self.hide()
 
@@ -577,8 +597,8 @@ class LauncherPopup:
         if self.win:
             try:
                 self.win.destroy()
-            except:
-                pass
+            except tk.TclError:
+                pass  # Window already destroyed
             self.win = None
 
         # Small delay before allowing next popup
