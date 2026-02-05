@@ -1,12 +1,12 @@
 {
   "items": {
     "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_mapping_studio.bat": {
-      "count": 50,
-      "last": "2026-02-05T13:15:03.509659"
+      "count": 51,
+      "last": "2026-02-05T15:18:23.958390"
     },
     "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat": {
-      "count": 57,
-      "last": "2026-02-05T13:17:24.719840"
+      "count": 58,
+      "last": "2026-02-05T15:08:53.249280"
     },
     "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_gui.bat": {
       "count": 11,
@@ -17,16 +17,16 @@
       "last": "2026-02-04T14:02:44.182173"
     },
     "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\disk_cleanup.bat": {
-      "count": 28,
-      "last": "2026-02-05T09:11:39.086933"
+      "count": 30,
+      "last": "2026-02-05T15:53:05.501645"
     },
     "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\run_optimizer.bat": {
       "count": 19,
       "last": "2026-02-04T13:21:32.907780"
     },
     "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\cli_high_boost.bat": {
-      "count": 4,
-      "last": "2026-02-05T09:11:59.612724"
+      "count": 5,
+      "last": "2026-02-05T15:12:01.533349"
     }
   }
 }
