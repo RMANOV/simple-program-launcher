@@ -167,7 +167,7 @@ if (Test-Path $ODLogsPath) {
     $before = (Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue |
         Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
-        Remove-Item -Force -EA SilentlyContinue
+        Remove-Item -Recurse -Force -EA SilentlyContinue
     $after = (Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     $ODFreed = [math]::Round(($before - $after) / 1MB, 0)
     $TotalFreedMB += $ODFreed
