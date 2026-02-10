@@ -1,5 +1,5 @@
 # Disk Cleanup Script
-# Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache
+# Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp
 #           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache
 # Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-01-30 (browser/vscode/teams caches)
 
@@ -192,7 +192,21 @@ if (Test-Path $TeamsCachePath) {
 Add-Content $LogFile "Cleaned Teams cache: $TeamsFreed MB freed"
 Write-Host "  Teams cache: $TeamsFreed MB freed" -ForegroundColor Cyan
 
-# 11. Check for runaway Python processes (memory leak detection)
+# 11. Snipping Tool TempState (screenshots/recordings not cleaned on close)
+$SnipFreed = 0
+$SnipTempPath = "$env:LOCALAPPDATA\Packages\Microsoft.ScreenSketch_8wekyb3d8bbwe\TempState"
+if (Test-Path $SnipTempPath) {
+    $before = (Get-ChildItem $SnipTempPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    Get-ChildItem $SnipTempPath -Recurse -Force -File -EA SilentlyContinue |
+        Remove-Item -Force -EA SilentlyContinue
+    $after = (Get-ChildItem $SnipTempPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $SnipFreed = [math]::Round(($before - $after) / 1MB, 0)
+    $TotalFreedMB += $SnipFreed
+}
+Add-Content $LogFile "Cleaned Snipping Tool temp: $SnipFreed MB freed"
+Write-Host "  Snipping Tool:  $SnipFreed MB freed" -ForegroundColor Cyan
+
+# 12. Check for runaway Python processes (memory leak detection)
 $RunawayProcesses = Get-Process python* -ErrorAction SilentlyContinue |
     Where-Object {$_.WorkingSet64 -gt 1GB}
 if ($RunawayProcesses) {
@@ -224,6 +238,7 @@ Write-Host "  Browser caches: $BrowserFreed MB" -ForegroundColor Cyan
 Write-Host "  VS Code caches: $VSCodeFreed MB" -ForegroundColor Cyan
 Write-Host "  OneDrive logs:  $ODFreed MB" -ForegroundColor Cyan
 Write-Host "  Teams cache:    $TeamsFreed MB" -ForegroundColor Cyan
+Write-Host "  Snipping Tool:  $SnipFreed MB" -ForegroundColor Cyan
 Write-Host "  pip/npm cache:  purged" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  TOTAL FREED:  $([math]::Round($TotalFreedMB/1024,2)) GB" -ForegroundColor Yellow
