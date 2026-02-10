@@ -1,5 +1,5 @@
 # Disk Cleanup Script
-# Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp
+# Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp, Recycle Bin
 #           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache
 # Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-01-30 (browser/vscode/teams caches)
 
@@ -206,7 +206,17 @@ if (Test-Path $SnipTempPath) {
 Add-Content $LogFile "Cleaned Snipping Tool temp: $SnipFreed MB freed"
 Write-Host "  Snipping Tool:  $SnipFreed MB freed" -ForegroundColor Cyan
 
-# 12. Check for runaway Python processes (memory leak detection)
+# 12. Recycle Bin (hidden space consumer — not visible in folder sizes)
+$RecycleBefore = [math]::Round((Get-PSDrive C).Free / 1MB, 0)
+Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+$RecycleAfter = [math]::Round((Get-PSDrive C).Free / 1MB, 0)
+$RecycleFreed = $RecycleAfter - $RecycleBefore
+if ($RecycleFreed -lt 0) { $RecycleFreed = 0 }
+$TotalFreedMB += $RecycleFreed
+Add-Content $LogFile "Emptied Recycle Bin: $RecycleFreed MB freed"
+Write-Host "  Recycle Bin:    $RecycleFreed MB freed" -ForegroundColor Cyan
+
+# 13. Check for runaway Python processes (memory leak detection)
 $RunawayProcesses = Get-Process python* -ErrorAction SilentlyContinue |
     Where-Object {$_.WorkingSet64 -gt 1GB}
 if ($RunawayProcesses) {
@@ -239,6 +249,7 @@ Write-Host "  VS Code caches: $VSCodeFreed MB" -ForegroundColor Cyan
 Write-Host "  OneDrive logs:  $ODFreed MB" -ForegroundColor Cyan
 Write-Host "  Teams cache:    $TeamsFreed MB" -ForegroundColor Cyan
 Write-Host "  Snipping Tool:  $SnipFreed MB" -ForegroundColor Cyan
+Write-Host "  Recycle Bin:    $RecycleFreed MB" -ForegroundColor Cyan
 Write-Host "  pip/npm cache:  purged" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  TOTAL FREED:  $([math]::Round($TotalFreedMB/1024,2)) GB" -ForegroundColor Yellow
