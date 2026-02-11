@@ -41,7 +41,7 @@ function Invoke-WithTimeout {
 $UvFreed = 0
 $UvCachePath = "$env:LOCALAPPDATA\uv\cache"
 if (Test-Path $UvCachePath) {
-    $UvBefore = (Get-ChildItem $UvCachePath -Recurse -Force -ErrorAction SilentlyContinue |
+    $UvBefore = (Get-ChildItem $UvCachePath -Recurse -Force -File -ErrorAction SilentlyContinue |
         Measure-Object -Property Length -Sum).Sum
     $UvBeforeMB = [math]::Round($UvBefore / 1MB, 0)
     Write-Host "  Cleaning uv cache ($UvBeforeMB MB)..." -NoNewline
@@ -60,7 +60,7 @@ if (Test-Path $UvCachePath) {
 # 2. Clean old temp files (>1 day old, skip locked)
 # Exclude dirs needed by apps between restarts (VSCode Insiders updater, etc.)
 $TempExclude = @('vscode-insider*')
-$TempBefore = (Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue |
+$TempBefore = (Get-ChildItem $env:TEMP -Recurse -Force -File -ErrorAction SilentlyContinue |
     Measure-Object -Property Length -Sum).Sum
 Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue |
     Where-Object { -not $_.PSIsContainer -and $_.LastWriteTime -lt (Get-Date).AddDays(-1) } |
@@ -70,7 +70,7 @@ Get-ChildItem $env:TEMP -Directory -Force -ErrorAction SilentlyContinue |
     Where-Object { $name = $_.Name; -not ($TempExclude | Where-Object { $name -like $_ }) } |
     Where-Object { (Get-ChildItem $_.FullName -Recurse -Force -ErrorAction SilentlyContinue).Count -eq 0 } |
     Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-$TempAfter = (Get-ChildItem $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue |
+$TempAfter = (Get-ChildItem $env:TEMP -Recurse -Force -File -ErrorAction SilentlyContinue |
     Measure-Object -Property Length -Sum).Sum
 $TempFreedMB = [math]::Round(($TempBefore - $TempAfter) / 1MB, 0)
 $TotalFreedMB += $TempFreedMB
@@ -128,9 +128,9 @@ $BrowserPaths = @(
 )
 foreach ($bpath in $BrowserPaths) {
     if (Test-Path $bpath) {
-        $before = (Get-ChildItem $bpath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $before = (Get-ChildItem $bpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
         Remove-Item "$bpath\*" -Recurse -Force -EA SilentlyContinue
-        $after = (Get-ChildItem $bpath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $after = (Get-ChildItem $bpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
         $BrowserFreed += [math]::Round(($before - $after) / 1MB, 0)
     }
 }
@@ -150,9 +150,9 @@ $VSCodePaths = @(
 )
 foreach ($vpath in $VSCodePaths) {
     if (Test-Path $vpath) {
-        $before = (Get-ChildItem $vpath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $before = (Get-ChildItem $vpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
         Remove-Item "$vpath\*" -Recurse -Force -EA SilentlyContinue
-        $after = (Get-ChildItem $vpath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $after = (Get-ChildItem $vpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
         $VSCodeFreed += [math]::Round(($before - $after) / 1MB, 0)
     }
 }
@@ -164,11 +164,11 @@ Write-Host "  VS Code caches: $VSCodeFreed MB freed" -ForegroundColor Cyan
 $ODLogsPath = "$env:LOCALAPPDATA\Microsoft\OneDrive\logs"
 $ODFreed = 0
 if (Test-Path $ODLogsPath) {
-    $before = (Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $before = (Get-ChildItem $ODLogsPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue |
         Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
         Remove-Item -Recurse -Force -EA SilentlyContinue
-    $after = (Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $after = (Get-ChildItem $ODLogsPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     $ODFreed = [math]::Round(($before - $after) / 1MB, 0)
     $TotalFreedMB += $ODFreed
 }
@@ -182,9 +182,9 @@ if (Test-Path $TeamsCachePath) {
     Get-ChildItem $TeamsCachePath -Directory -Force -EA SilentlyContinue |
         Where-Object { $_.Name -like "*Cache*" } |
         ForEach-Object {
-            $before = (Get-ChildItem $_.FullName -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+            $before = (Get-ChildItem $_.FullName -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
             Remove-Item "$($_.FullName)\*" -Recurse -Force -EA SilentlyContinue
-            $after = (Get-ChildItem $_.FullName -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+            $after = (Get-ChildItem $_.FullName -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
             $TeamsFreed += [math]::Round(($before - $after) / 1MB, 0)
         }
     $TotalFreedMB += $TeamsFreed
@@ -196,10 +196,10 @@ Write-Host "  Teams cache: $TeamsFreed MB freed" -ForegroundColor Cyan
 $SnipFreed = 0
 $SnipTempPath = "$env:LOCALAPPDATA\Packages\Microsoft.ScreenSketch_8wekyb3d8bbwe\TempState"
 if (Test-Path $SnipTempPath) {
-    $before = (Get-ChildItem $SnipTempPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $before = (Get-ChildItem $SnipTempPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     Get-ChildItem $SnipTempPath -Recurse -Force -File -EA SilentlyContinue |
         Remove-Item -Force -EA SilentlyContinue
-    $after = (Get-ChildItem $SnipTempPath -Recurse -Force -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $after = (Get-ChildItem $SnipTempPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     $SnipFreed = [math]::Round(($before - $after) / 1MB, 0)
     $TotalFreedMB += $SnipFreed
 }
