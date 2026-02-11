@@ -2,8 +2,30 @@
 # Focuses on: Process Priority, I/O Priority, CPU Affinity, Memory Priority
 # Автор: rmanov | 2026-01-20
 
+function Test-PendingWindowsUpdate {
+    $pendingKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\RebootRequired"
+    )
+
+    foreach ($key in $pendingKeys) {
+        if (Test-Path $key) { return $true }
+    }
+
+    $volatile = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Updates" -Name UpdateExeVolatile -ErrorAction SilentlyContinue).UpdateExeVolatile
+    if ($null -ne $volatile -and [int]$volatile -ne 0) { return $true }
+
+    return $false
+}
+
+$pendingUpdate = Test-PendingWindowsUpdate
+
 Write-Host "`n=== CachyOS-Style Windows Optimizer ===" -ForegroundColor Magenta
 Write-Host "Scheduler & Priority Optimizations (User-Level)`n" -ForegroundColor Gray
+if ($pendingUpdate) {
+    Write-Host "  [!] Pending Windows Update detected -> update-safe mode enabled (SearchIndexer untouched)." -ForegroundColor Yellow
+}
 
 # ============================================
 # 1. PROCESS PRIORITY OPTIMIZATION
@@ -14,6 +36,9 @@ Write-Host "[1/5] Process Priority Rules..." -ForegroundColor Yellow
 $HighPriority = @("Code - Insiders", "python", "node", "claude")
 # Below Normal for background tasks
 $LowPriority = @("OneDrive", "Teams", "msedge", "SearchHost", "Widgets")
+if ($pendingUpdate) {
+    $LowPriority = $LowPriority | Where-Object { $_ -ne "SearchHost" }
+}
 
 foreach ($proc in $HighPriority) {
     Get-Process -Name $proc -ErrorAction SilentlyContinue | ForEach-Object {
@@ -99,14 +124,22 @@ $IOPriorityPath = "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Image File
 Write-Host "  High I/O priority for: python, node, VS Code" -ForegroundColor Green
 
 # Low I/O priority for background
-@("OneDrive.exe", "SearchIndexer.exe") | ForEach-Object {
+$LowIOTargets = @("OneDrive.exe", "SearchIndexer.exe")
+if ($pendingUpdate) {
+    $LowIOTargets = @("OneDrive.exe")
+    @("SearchIndexer.exe", "SearchProtocolHost.exe") | ForEach-Object {
+        $existingPath = "$IOPriorityPath\$_\PerfOptions"
+        Remove-ItemProperty -Path $existingPath -Name "IoPriority" -ErrorAction SilentlyContinue
+    }
+}
+$LowIOTargets | ForEach-Object {
     $keyPath = "$IOPriorityPath\$_\PerfOptions"
     if (-not (Test-Path $keyPath)) {
         New-Item -Path $keyPath -Force | Out-Null
     }
     Set-ItemProperty -Path $keyPath -Name "IoPriority" -Value 0 -Type DWord -ErrorAction SilentlyContinue
 }
-Write-Host "  Low I/O priority for: OneDrive, SearchIndexer" -ForegroundColor Cyan
+Write-Host "  Low I/O priority for: $($LowIOTargets -join ', ')" -ForegroundColor Cyan
 
 # ============================================
 # 5. ENVIRONMENT OPTIMIZATIONS

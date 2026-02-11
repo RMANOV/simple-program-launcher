@@ -1,7 +1,7 @@
 # Disk Cleanup Script
 # Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp, OneDrive Screenshots, Recycle Bin
 #           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache
-# Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-02-11 (browser/teams coverage, OneDrive logs fix, Screenshots path)
+# Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-02-11 (browser/teams coverage, OneDrive logs fix, Screenshots path, ultra chat/cache cleanup)
 
 $LogFile = "$env:TEMP\disk_cleanup.log"
 $Date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -37,7 +37,31 @@ function Invoke-WithTimeout {
     }
 }
 
-# 1. Clean uv cache (Python package manager — can grow to 40+ GB!)
+function Test-PendingWindowsUpdate {
+    $pendingKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\RebootRequired"
+    )
+    foreach ($key in $pendingKeys) {
+        if (Test-Path $key) { return $true }
+    }
+
+    $volatile = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Updates" -Name UpdateExeVolatile -ErrorAction SilentlyContinue).UpdateExeVolatile
+    if ($null -ne $volatile -and [int]$volatile -ne 0) { return $true }
+
+    return $false
+}
+
+$PendingUpdate = Test-PendingWindowsUpdate
+if ($PendingUpdate) {
+    Write-Host "  [!] Pending Windows Update detected -> update-safe cleanup mode" -ForegroundColor Yellow
+    Add-Content $LogFile "Pending Windows Update: YES (update-safe cleanup mode)"
+} else {
+    Add-Content $LogFile "Pending Windows Update: NO"
+}
+
+# 1. Clean uv cache (Python package manager - can grow to 40+ GB!)
 $UvFreed = 0
 $UvCachePath = "$env:LOCALAPPDATA\uv\cache"
 if (Test-Path $UvCachePath) {
@@ -250,7 +274,7 @@ Write-Host "  Snipping Tool:  $SnipFreed MB freed" -ForegroundColor Cyan
 
 # 12. OneDrive Screenshots (explicit path)
 $ScreensFreed = 0
-$ScreensPath = "D:\OneDrive - Крестън БулМар ООД\Pictures\Screenshots"
+$ScreensPath = Join-Path $env:OneDrive "Pictures\Screenshots"
 if (Test-Path $ScreensPath) {
     $before = (Get-ChildItem $ScreensPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
     Get-ChildItem $ScreensPath -Force -EA SilentlyContinue |
@@ -263,7 +287,7 @@ if (Test-Path $ScreensPath) {
 Add-Content $LogFile "Cleaned OneDrive Screenshots: $ScreensFreed MB freed"
 Write-Host "  Screenshots:   $ScreensFreed MB freed" -ForegroundColor Cyan
 
-# 13. Recycle Bin (hidden space consumer — not visible in folder sizes)
+# 13. Recycle Bin (hidden space consumer - not visible in folder sizes)
 $RecycleBefore = [math]::Round((Get-PSDrive C).Free / 1MB, 0)
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue
 $RecycleAfter = [math]::Round((Get-PSDrive C).Free / 1MB, 0)
@@ -287,6 +311,98 @@ if ($RunawayProcesses) {
     Add-Content $LogFile "No runaway Python processes (all < 1GB)"
 }
 
+# 15. VS Code chat/session payload cleanup (targets large stale JSON history)
+$VSCodeChatFreed = 0
+$VSCodeChatFiles = @()
+$VSWorkspaceRoots = @(
+    "$env:APPDATA\Code - Insiders\User\workspaceStorage",
+    "$env:APPDATA\Code\User\workspaceStorage"
+)
+foreach ($root in $VSWorkspaceRoots) {
+    if (Test-Path $root) {
+        $VSCodeChatFiles += Get-ChildItem $root -Recurse -Force -File -EA SilentlyContinue |
+            Where-Object {
+                ($_.FullName -like "*\chatSessions\*.json" -or $_.FullName -like "*\chatEditingSessions\*\state.json") -and
+                $_.LastWriteTime -lt (Get-Date).AddDays(-7)
+            }
+    }
+}
+$VSEmptyWindowRoots = @(
+    "$env:APPDATA\Code - Insiders\User\globalStorage\emptyWindowChatSessions",
+    "$env:APPDATA\Code\User\globalStorage\emptyWindowChatSessions"
+)
+foreach ($root in $VSEmptyWindowRoots) {
+    if (Test-Path $root) {
+        $VSCodeChatFiles += Get-ChildItem $root -Recurse -Force -File -EA SilentlyContinue |
+            Where-Object { $_.Extension -eq ".json" -and $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+    }
+}
+$VSCodeChatFiles = $VSCodeChatFiles | Sort-Object FullName -Unique
+if ($VSCodeChatFiles -and $VSCodeChatFiles.Count -gt 0) {
+    $chatBytes = ($VSCodeChatFiles | Measure-Object Length -Sum).Sum
+    $VSCodeChatFiles | Remove-Item -Force -EA SilentlyContinue
+    $VSCodeChatFreed = [int][math]::Round($chatBytes / 1MB, 0)
+    if ($VSCodeChatFreed -lt 0) { $VSCodeChatFreed = 0 }
+    $TotalFreedMB += $VSCodeChatFreed
+}
+Add-Content $LogFile "Cleaned VS Code chat/session payloads: $VSCodeChatFreed MB freed"
+Write-Host "  VS Code chat:  $VSCodeChatFreed MB freed" -ForegroundColor Cyan
+
+# 16. Claude desktop cache cleanup (safe mode: skip if Claude is running)
+$ClaudeCacheFreed = 0
+$ClaudeIsRunning = $false
+if (Get-Process claude -EA SilentlyContinue) {
+    $ClaudeIsRunning = $true
+}
+if (-not $ClaudeIsRunning) {
+    $ClaudeCacheRoots = @(
+        "$env:APPDATA\Claude\Cache\Cache_Data",
+        "$env:APPDATA\Claude\Code Cache\js"
+    )
+    foreach ($root in $ClaudeCacheRoots) {
+        if (Test-Path $root) {
+            $oldFiles = Get-ChildItem $root -Recurse -Force -File -EA SilentlyContinue |
+                Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+            if ($oldFiles) {
+                $before = ($oldFiles | Measure-Object Length -Sum).Sum
+                $oldFiles | Remove-Item -Force -EA SilentlyContinue
+                $ClaudeCacheFreed += [int][math]::Round($before / 1MB, 0)
+            }
+        }
+    }
+} else {
+    Add-Content $LogFile "Claude cache cleanup skipped (claude.exe is running)"
+}
+if ($ClaudeCacheFreed -lt 0) { $ClaudeCacheFreed = 0 }
+$TotalFreedMB += $ClaudeCacheFreed
+Add-Content $LogFile "Cleaned Claude app cache: $ClaudeCacheFreed MB freed"
+if ($ClaudeIsRunning) {
+    Write-Host "  Claude cache:  skipped (Claude running)" -ForegroundColor DarkGray
+} else {
+    Write-Host "  Claude cache:  $ClaudeCacheFreed MB freed" -ForegroundColor Cyan
+}
+
+# 17. WinGet package payload cleanup (old installer remnants)
+$WinGetFreed = 0
+$WinGetRoot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages"
+if (Test-Path $WinGetRoot) {
+    $oldWinGetFiles = Get-ChildItem $WinGetRoot -Recurse -Force -File -EA SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-21) }
+    if ($oldWinGetFiles) {
+        $before = ($oldWinGetFiles | Measure-Object Length -Sum).Sum
+        $oldWinGetFiles | Remove-Item -Force -EA SilentlyContinue
+        $WinGetFreed = [int][math]::Round($before / 1MB, 0)
+        if ($WinGetFreed -lt 0) { $WinGetFreed = 0 }
+        $TotalFreedMB += $WinGetFreed
+    }
+    Get-ChildItem $WinGetRoot -Recurse -Force -Directory -EA SilentlyContinue |
+        Sort-Object FullName -Descending |
+        Where-Object { (Get-ChildItem $_.FullName -Force -EA SilentlyContinue).Count -eq 0 } |
+        Remove-Item -Force -EA SilentlyContinue
+}
+Add-Content $LogFile "Cleaned WinGet package payloads: $WinGetFreed MB freed"
+Write-Host "  WinGet cache:  $WinGetFreed MB freed" -ForegroundColor Cyan
+
 # Summary
 $FreeSpaceAfter = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
 $NetFreedGB = [math]::Round($FreeSpaceAfter - $FreeSpaceBefore, 2)
@@ -308,8 +424,12 @@ Write-Host "  Teams cache:    $TeamsFreed MB" -ForegroundColor Cyan
 Write-Host "  Snipping Tool:  $SnipFreed MB" -ForegroundColor Cyan
 Write-Host "  Screenshots:    $ScreensFreed MB" -ForegroundColor Cyan
 Write-Host "  Recycle Bin:    $RecycleFreed MB" -ForegroundColor Cyan
+Write-Host "  VS Code chat:   $VSCodeChatFreed MB" -ForegroundColor Cyan
+Write-Host "  Claude cache:   $ClaudeCacheFreed MB" -ForegroundColor Cyan
+Write-Host "  WinGet cache:   $WinGetFreed MB" -ForegroundColor Cyan
 Write-Host "  pip/npm cache:  purged" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  TOTAL FREED:  $([math]::Round($TotalFreedMB/1024,2)) GB" -ForegroundColor Yellow
 Write-Host "  C: Free now:  $FreeSpaceAfter GB" -ForegroundColor Yellow
 Write-Host ""
+exit 0

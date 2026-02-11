@@ -3,12 +3,35 @@
 # Autor: rmanov | 2026-02-04
 # OODA: Observe - Orient - Decide - Act
 
+function Test-PendingWindowsUpdate {
+    $pendingKeys = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending",
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Orchestrator\RebootRequired"
+    )
+
+    foreach ($key in $pendingKeys) {
+        if (Test-Path $key) { return $true }
+    }
+
+    $volatile = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Updates" -Name UpdateExeVolatile -ErrorAction SilentlyContinue).UpdateExeVolatile
+    if ($null -ne $volatile -and [int]$volatile -ne 0) { return $true }
+
+    return $false
+}
+
+$pendingUpdate = Test-PendingWindowsUpdate
+
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Magenta
 Write-Host "         CLI HIGH BOOST - Terminal/Shell Priority              " -ForegroundColor Magenta
 Write-Host "              CachyOS-Style Aggressive Mode                    " -ForegroundColor Magenta
 Write-Host "================================================================" -ForegroundColor Magenta
 Write-Host ""
+if ($pendingUpdate) {
+    Write-Host "  [!] Pending Windows Update detected -> update-safe mode enabled (no SearchIndexer tuning)." -ForegroundColor Yellow
+    Write-Host ""
+}
 
 $StartTime = Get-Date
 $Changes = @()
@@ -53,6 +76,9 @@ $BackgroundProcesses = @(
     "backgroundTaskHost",
     "SettingsSyncHost"
 )
+if ($pendingUpdate) {
+    $BackgroundProcesses = $BackgroundProcesses | Where-Object { $_ -notin @("SearchHost", "SearchIndexer", "SearchProtocolHost") }
+}
 
 $boosted = 0
 $demoted = 0
@@ -105,7 +131,11 @@ Write-Host "  Detected $CPUCount logical processors" -ForegroundColor Gray
 $BackgroundMask = 3
 
 $affinitySet = 0
-foreach ($proc in @("OneDrive", "Teams", "SearchIndexer", "msedge")) {
+$AffinityTargets = @("OneDrive", "Teams", "SearchIndexer", "msedge")
+if ($pendingUpdate) {
+    $AffinityTargets = @("OneDrive", "Teams", "msedge")
+}
+foreach ($proc in $AffinityTargets) {
     Get-Process -Name $proc -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             $_.ProcessorAffinity = $BackgroundMask
@@ -151,6 +181,13 @@ $LowIOTools = @(
     "OneDrive.exe", "SearchIndexer.exe", "SearchProtocolHost.exe",
     "msedge.exe", "chrome.exe", "Teams.exe"
 )
+if ($pendingUpdate) {
+    @("SearchIndexer.exe", "SearchProtocolHost.exe") | ForEach-Object {
+        $existingPath = "$IOPath\$_\PerfOptions"
+        Remove-ItemProperty -Path $existingPath -Name "IoPriority" -ErrorAction SilentlyContinue
+    }
+    $LowIOTools = $LowIOTools | Where-Object { $_ -notin @("SearchIndexer.exe", "SearchProtocolHost.exe") }
+}
 
 foreach ($exe in $LowIOTools) {
     $keyPath = "$IOPath\$exe\PerfOptions"
@@ -159,7 +196,7 @@ foreach ($exe in $LowIOTools) {
     }
     Set-ItemProperty -Path $keyPath -Name "IoPriority" -Value 0 -Type DWord -ErrorAction SilentlyContinue
 }
-Write-Host "  Low I/O: OneDrive, SearchIndexer, Edge, Teams" -ForegroundColor Cyan
+Write-Host "  Low I/O: $($LowIOTools -join ', ')" -ForegroundColor Cyan
 
 $Changes += "I/O Priority: $($HighIOTools.Count) high, $($LowIOTools.Count) low"
 
