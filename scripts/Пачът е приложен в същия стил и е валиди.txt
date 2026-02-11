@@ -1,0 +1,50 @@
+Пачът е приложен в същия стил и е валидиран:
+
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1`
+
+Какво подобрих (minimal, safe, useful):
+1. Разширих browser cleanup да хваща и `Service Worker\CacheStorage` + профили `Default` и `Profile *` за Chrome/Edge.  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:121`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:136`
+
+2. Добавих липсващите VS Code големи кешове: `CachedExtensionVSIXs` и `Crashpad` (за Insiders и stable).  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:156`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:162`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:163`
+
+3. Поправих OneDrive логиката: вече чисти лог разширенията агресивно (не само >7 дни), спира/пуска OneDrive за unlock, пази `settings`/`ListSync`.  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:182`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:187`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:190`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:196`
+
+4. Поправих Teams cleanup да чисти реалните големи WebView2 кешове (`WV2Profile_tfw`) + `Logs`.  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:213`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:219`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:223`
+
+5. Добавих гард срещу `-0 MB` в OneDrive отчета.  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:203`  
+`D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:204`
+
+Валидация:
+1. `Syntax: OK` (PowerShell parse check).  
+2. End-to-end run мина без грешки; отчетът е чист (`OneDrive logs: 0 MB freed`, без отрицателна нула).  
+3. Скриптът остава безопасен: трие само кеш/лог пътища, не пипа потребителски документи, OneDrive данни (`ListSync/settings`) или системни файлове.
+
+
+Готово, добавих този път в скрипта.
+
+Промени:
+- Добавен cleanup за:
+`D:\OneDrive - Крестън БулМар ООД\Pictures\Screenshots`
+- Добавен ред в финалния отчет: `Screenshots: ... MB`
+- Обновени коментар/описание и номерацията на стъпките след новата секция.
+
+Ключови места:
+- `D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:251`
+- `D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:253`
+- `D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\disk_cleanup.ps1:309`
+
+Проверка:
+- Синтаксисът е валиден (`Syntax: OK`).

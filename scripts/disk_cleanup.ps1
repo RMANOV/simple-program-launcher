@@ -1,7 +1,7 @@
 # Disk Cleanup Script
-# Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp, Recycle Bin
+# Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp, OneDrive Screenshots, Recycle Bin
 #           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache
-# Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-01-30 (browser/vscode/teams caches)
+# Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-02-11 (browser/teams coverage, OneDrive logs fix, Screenshots path)
 
 $LogFile = "$env:TEMP\disk_cleanup.log"
 $Date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -118,20 +118,35 @@ Add-Content $LogFile "Purged pip cache"
 Invoke-WithTimeout -Script { npm cache clean --force 2>&1 } -TimeoutSec 30 -Name "npm cache" | Out-Null
 Add-Content $LogFile "Cleaned npm cache"
 
-# 7. Browser Caches (Chrome & Edge)
+# 7. Browser Caches (Chrome & Edge, incl. Service Worker caches)
 $BrowserFreed = 0
-$BrowserPaths = @(
-    "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache",
-    "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Code Cache",
-    "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache",
-    "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Code Cache"
+$BrowserRoots = @(
+    "$env:LOCALAPPDATA\Google\Chrome\User Data",
+    "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
 )
-foreach ($bpath in $BrowserPaths) {
-    if (Test-Path $bpath) {
-        $before = (Get-ChildItem $bpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-        Remove-Item "$bpath\*" -Recurse -Force -EA SilentlyContinue
-        $after = (Get-ChildItem $bpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-        $BrowserFreed += [math]::Round(($before - $after) / 1MB, 0)
+foreach ($root in $BrowserRoots) {
+    if (Test-Path $root) {
+        $profiles = Get-ChildItem $root -Directory -EA SilentlyContinue |
+            Where-Object { $_.Name -eq 'Default' -or $_.Name -like 'Profile *' }
+        foreach ($profile in $profiles) {
+            $BrowserPaths = @(
+                "$($profile.FullName)\Cache",
+                "$($profile.FullName)\Code Cache",
+                "$($profile.FullName)\GPUCache",
+                "$($profile.FullName)\Service Worker\CacheStorage",
+                "$($profile.FullName)\GrShaderCache",
+                "$($profile.FullName)\DawnGraphiteCache",
+                "$($profile.FullName)\DawnWebGPUCache"
+            )
+            foreach ($bpath in $BrowserPaths) {
+                if (Test-Path $bpath) {
+                    $before = (Get-ChildItem $bpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+                    Remove-Item "$bpath\*" -Recurse -Force -EA SilentlyContinue
+                    $after = (Get-ChildItem $bpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+                    $BrowserFreed += [math]::Round(($before - $after) / 1MB, 0)
+                }
+            }
+        }
     }
 }
 $TotalFreedMB += $BrowserFreed
@@ -144,9 +159,13 @@ $VSCodePaths = @(
     "$env:APPDATA\Code - Insiders\Cache",
     "$env:APPDATA\Code - Insiders\CachedData",
     "$env:APPDATA\Code - Insiders\GPUCache",
+    "$env:APPDATA\Code - Insiders\CachedExtensionVSIXs",
+    "$env:APPDATA\Code - Insiders\Crashpad",
     "$env:APPDATA\Code\Cache",
     "$env:APPDATA\Code\CachedData",
-    "$env:APPDATA\Code\GPUCache"
+    "$env:APPDATA\Code\GPUCache",
+    "$env:APPDATA\Code\CachedExtensionVSIXs",
+    "$env:APPDATA\Code\Crashpad"
 )
 foreach ($vpath in $VSCodePaths) {
     if (Test-Path $vpath) {
@@ -160,35 +179,58 @@ $TotalFreedMB += $VSCodeFreed
 Add-Content $LogFile "Cleaned VS Code caches: $VSCodeFreed MB freed"
 Write-Host "  VS Code caches: $VSCodeFreed MB freed" -ForegroundColor Cyan
 
-# 9. OneDrive logs (>7 days old)
+# 9. OneDrive logs (aggressive log cleanup, keeps settings/list sync)
 $ODLogsPath = "$env:LOCALAPPDATA\Microsoft\OneDrive\logs"
 $ODFreed = 0
+$OneDriveExe = "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe"
+$OneDriveWasRunning = $false
+$ODLogExtensions = @('.odl', '.odlgz', '.aodl', '.etlgz', '.log', '.loggz')
+if (Get-Process OneDrive -EA SilentlyContinue) {
+    $OneDriveWasRunning = $true
+    Stop-Process -Name OneDrive -Force -EA SilentlyContinue
+    Start-Sleep -Milliseconds 800
+}
 if (Test-Path $ODLogsPath) {
     $before = (Get-ChildItem $ODLogsPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-    Get-ChildItem $ODLogsPath -Recurse -Force -EA SilentlyContinue |
-        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
-        Remove-Item -Recurse -Force -EA SilentlyContinue
+    Get-ChildItem $ODLogsPath -Recurse -Force -File -EA SilentlyContinue |
+        Where-Object { $ODLogExtensions -contains $_.Extension.ToLowerInvariant() } |
+        Remove-Item -Force -EA SilentlyContinue
+    Get-ChildItem $ODLogsPath -Recurse -Force -Directory -EA SilentlyContinue |
+        Sort-Object FullName -Descending |
+        Where-Object { (Get-ChildItem $_.FullName -Force -EA SilentlyContinue).Count -eq 0 } |
+        Remove-Item -Force -EA SilentlyContinue
     $after = (Get-ChildItem $ODLogsPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-    $ODFreed = [math]::Round(($before - $after) / 1MB, 0)
+    $ODFreed = [int][math]::Round(($before - $after) / 1MB, 0)
+    if ($ODFreed -lt 0) { $ODFreed = 0 }
     $TotalFreedMB += $ODFreed
+}
+if ($OneDriveWasRunning -and (Test-Path $OneDriveExe)) {
+    Start-Process $OneDriveExe -EA SilentlyContinue | Out-Null
 }
 Add-Content $LogFile "Cleaned OneDrive logs: $ODFreed MB freed"
 Write-Host "  OneDrive logs: $ODFreed MB freed" -ForegroundColor Cyan
 
-# 10. Teams Cache (EBWebView caches)
+# 10. Teams Cache (EBWebView/WV2Profile caches + logs)
 $TeamsFreed = 0
-$TeamsCachePath = "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView"
-if (Test-Path $TeamsCachePath) {
-    Get-ChildItem $TeamsCachePath -Directory -Force -EA SilentlyContinue |
-        Where-Object { $_.Name -like "*Cache*" } |
-        ForEach-Object {
-            $before = (Get-ChildItem $_.FullName -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-            Remove-Item "$($_.FullName)\*" -Recurse -Force -EA SilentlyContinue
-            $after = (Get-ChildItem $_.FullName -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-            $TeamsFreed += [math]::Round(($before - $after) / 1MB, 0)
-        }
-    $TotalFreedMB += $TeamsFreed
+$TeamsPaths = @(
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\Cache",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\Code Cache",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\GPUCache",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\Service Worker\CacheStorage",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\GrShaderCache",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\DawnGraphiteCache",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\WV2Profile_tfw\DawnWebGPUCache",
+    "$env:LOCALAPPDATA\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\Logs"
+)
+foreach ($tpath in $TeamsPaths) {
+    if (Test-Path $tpath) {
+        $before = (Get-ChildItem $tpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        Remove-Item "$tpath\*" -Recurse -Force -EA SilentlyContinue
+        $after = (Get-ChildItem $tpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $TeamsFreed += [math]::Round(($before - $after) / 1MB, 0)
+    }
 }
+$TotalFreedMB += $TeamsFreed
 Add-Content $LogFile "Cleaned Teams cache: $TeamsFreed MB freed"
 Write-Host "  Teams cache: $TeamsFreed MB freed" -ForegroundColor Cyan
 
@@ -206,7 +248,22 @@ if (Test-Path $SnipTempPath) {
 Add-Content $LogFile "Cleaned Snipping Tool temp: $SnipFreed MB freed"
 Write-Host "  Snipping Tool:  $SnipFreed MB freed" -ForegroundColor Cyan
 
-# 12. Recycle Bin (hidden space consumer — not visible in folder sizes)
+# 12. OneDrive Screenshots (explicit path)
+$ScreensFreed = 0
+$ScreensPath = "D:\OneDrive - Крестън БулМар ООД\Pictures\Screenshots"
+if (Test-Path $ScreensPath) {
+    $before = (Get-ChildItem $ScreensPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    Get-ChildItem $ScreensPath -Force -EA SilentlyContinue |
+        Remove-Item -Recurse -Force -EA SilentlyContinue
+    $after = (Get-ChildItem $ScreensPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $ScreensFreed = [int][math]::Round(($before - $after) / 1MB, 0)
+    if ($ScreensFreed -lt 0) { $ScreensFreed = 0 }
+    $TotalFreedMB += $ScreensFreed
+}
+Add-Content $LogFile "Cleaned OneDrive Screenshots: $ScreensFreed MB freed"
+Write-Host "  Screenshots:   $ScreensFreed MB freed" -ForegroundColor Cyan
+
+# 13. Recycle Bin (hidden space consumer — not visible in folder sizes)
 $RecycleBefore = [math]::Round((Get-PSDrive C).Free / 1MB, 0)
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue
 $RecycleAfter = [math]::Round((Get-PSDrive C).Free / 1MB, 0)
@@ -216,7 +273,7 @@ $TotalFreedMB += $RecycleFreed
 Add-Content $LogFile "Emptied Recycle Bin: $RecycleFreed MB freed"
 Write-Host "  Recycle Bin:    $RecycleFreed MB freed" -ForegroundColor Cyan
 
-# 13. Check for runaway Python processes (memory leak detection)
+# 14. Check for runaway Python processes (memory leak detection)
 $RunawayProcesses = Get-Process python* -ErrorAction SilentlyContinue |
     Where-Object {$_.WorkingSet64 -gt 1GB}
 if ($RunawayProcesses) {
@@ -249,6 +306,7 @@ Write-Host "  VS Code caches: $VSCodeFreed MB" -ForegroundColor Cyan
 Write-Host "  OneDrive logs:  $ODFreed MB" -ForegroundColor Cyan
 Write-Host "  Teams cache:    $TeamsFreed MB" -ForegroundColor Cyan
 Write-Host "  Snipping Tool:  $SnipFreed MB" -ForegroundColor Cyan
+Write-Host "  Screenshots:    $ScreensFreed MB" -ForegroundColor Cyan
 Write-Host "  Recycle Bin:    $RecycleFreed MB" -ForegroundColor Cyan
 Write-Host "  pip/npm cache:  purged" -ForegroundColor DarkGray
 Write-Host ""
