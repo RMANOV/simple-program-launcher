@@ -7,7 +7,7 @@ exePath = scriptDir & exeName
 
 ' Copy pythonw.exe if not exists
 If Not fso.FileExists(exePath) Then
-    pythonPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python\Python313\pythonw.exe")
+    pythonPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%\Programs\Python\Python314\pythonw.exe")
     If Not fso.FileExists(pythonPath) Then
         ' Try to find via where command
         Set exec = WshShell.Exec("cmd /c where pythonw.exe")

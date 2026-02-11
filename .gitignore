@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.exe
+clipboard.json
+usage.json
+launcher_errors.log
