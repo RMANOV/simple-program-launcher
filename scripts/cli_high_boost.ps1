@@ -251,9 +251,14 @@ $trimmed = 0
 $freedMB = 0
 
 # Trim ALL background processes with >50MB and <1% CPU
+$memoryExclusions = $TerminalProcesses + $DevProcesses + @("explorer", "dwm", "csrss", "System")
+if ($pendingUpdate) {
+    $memoryExclusions += @("TiWorker", "TrustedInstaller")
+}
+
 Get-Process | Where-Object {
     $_.WorkingSet64 -gt 50MB -and
-    $_.Name -notin ($TerminalProcesses + $DevProcesses + @("explorer", "dwm", "csrss", "System"))
+    $_.Name -notin $memoryExclusions
 } | ForEach-Object {
     try {
         $cpuPercent = 0

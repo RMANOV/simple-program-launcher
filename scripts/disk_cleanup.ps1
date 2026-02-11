@@ -272,17 +272,18 @@ if (Test-Path $SnipTempPath) {
 Add-Content $LogFile "Cleaned Snipping Tool temp: $SnipFreed MB freed"
 Write-Host "  Snipping Tool:  $SnipFreed MB freed" -ForegroundColor Cyan
 
-# 12. OneDrive Screenshots (explicit path)
+# 12. OneDrive Screenshots (>30 days old only)
 $ScreensFreed = 0
 $ScreensPath = Join-Path $env:OneDrive "Pictures\Screenshots"
 if (Test-Path $ScreensPath) {
-    $before = (Get-ChildItem $ScreensPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-    Get-ChildItem $ScreensPath -Force -EA SilentlyContinue |
-        Remove-Item -Recurse -Force -EA SilentlyContinue
-    $after = (Get-ChildItem $ScreensPath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
-    $ScreensFreed = [int][math]::Round(($before - $after) / 1MB, 0)
-    if ($ScreensFreed -lt 0) { $ScreensFreed = 0 }
-    $TotalFreedMB += $ScreensFreed
+    $oldScreens = Get-ChildItem $ScreensPath -Force -File -EA SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-30) }
+    if ($oldScreens) {
+        $ScreensFreed = [int][math]::Round(($oldScreens | Measure-Object Length -Sum).Sum / 1MB, 0)
+        $oldScreens | Remove-Item -Force -EA SilentlyContinue
+        if ($ScreensFreed -lt 0) { $ScreensFreed = 0 }
+        $TotalFreedMB += $ScreensFreed
+    }
 }
 Add-Content $LogFile "Cleaned OneDrive Screenshots: $ScreensFreed MB freed"
 Write-Host "  Screenshots:   $ScreensFreed MB freed" -ForegroundColor Cyan
@@ -383,6 +384,7 @@ if ($ClaudeIsRunning) {
 }
 
 # 17. WinGet package payload cleanup (old installer remnants)
+# NOTE: Portable apps (fd, fzf, etc.) may install to WinGet Packages — verify before cleanup
 $WinGetFreed = 0
 $WinGetRoot = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages"
 if (Test-Path $WinGetRoot) {

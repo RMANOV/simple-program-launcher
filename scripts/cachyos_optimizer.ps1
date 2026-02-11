@@ -64,7 +64,7 @@ foreach ($proc in $LowPriority) {
 Write-Host "`n[2/5] CPU Affinity (Performance Cores)..." -ForegroundColor Yellow
 
 # Get number of logical processors
-$CPUCount = (Get-WmiObject Win32_Processor).NumberOfLogicalProcessors
+$CPUCount = (Get-CimInstance -ClassName Win32_Processor).NumberOfLogicalProcessors
 Write-Host "  Detected $CPUCount logical processors" -ForegroundColor Gray
 
 # For i5-8500 (6 cores): Use all cores for dev tools, limit background to 2 cores
