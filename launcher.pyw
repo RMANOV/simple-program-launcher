@@ -552,7 +552,10 @@ class LauncherPopup:
         self.hide()
         if path:
             try:
-                if os.path.exists(path):
+                ext = os.path.splitext(path)[1].lower()
+                if ext in ('.bat', '.cmd'):
+                    subprocess.Popen(path, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                elif os.path.exists(path):
                     os.startfile(path)
                 else:
                     subprocess.Popen(path, shell=True)
