@@ -1,6 +1,17 @@
+# Python
 __pycache__/
-*.pyc
-*.exe
+*.py[cod]
+*.pyo
+
+# Runtime state (changes every run)
 clipboard.json
 usage.json
-launcher_errors.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
