@@ -12,6 +12,7 @@
     {"name": "Disk Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\disk_cleanup.bat", "icon": "🗑"},
     {"name": "Boost PC", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\run_optimizer.bat", "icon": "🚀"},
     {"name": "CLI High Boost", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\cli_high_boost.bat", "icon": "⚡"},
+    {"name": "Task Board", "path": "C:\\Users\\rmanov\\.claude\\memory\\bridge\\index.html", "icon": "📋"},
     {"name": "─────────────", "path": "", "icon": " ", "separator": true},
     {"name": "Word", "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE", "icon": "📄"},
     {"name": "Notepad++", "path": "C:\\Program Files\\Notepad++\\notepad++.exe", "icon": "📝"},
