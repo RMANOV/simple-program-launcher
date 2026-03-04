@@ -213,7 +213,9 @@ Write-Host "[4/7] Environment Variables (CLI Performance)..." -ForegroundColor Y
 
 # Python optimizations
 [Environment]::SetEnvironmentVariable("PYTHONDONTWRITEBYTECODE", "1", "User")
-[Environment]::SetEnvironmentVariable("PYTHONOPTIMIZE", "1", "User")
+# REMOVED: PYTHONOPTIMIZE=1 conflicts with reports_generator assert-based accounting validation
+# [Environment]::SetEnvironmentVariable("PYTHONOPTIMIZE", "1", "User")
+[Environment]::SetEnvironmentVariable("PYTHONOPTIMIZE", $null, "User")
 [Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "User")
 [Environment]::SetEnvironmentVariable("PYTHONMALLOC", "pymalloc", "User")
 [Environment]::SetEnvironmentVariable("PYTHONHASHSEED", "0", "User")
