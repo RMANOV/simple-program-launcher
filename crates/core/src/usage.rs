@@ -129,14 +129,14 @@ impl UsageData {
     /// Get top N programs by score
     pub fn top_programs(&self, n: usize) -> Vec<&UsageRecord> {
         let mut programs: Vec<_> = self.programs.values().collect();
-        programs.sort_by(|a, b| b.score().partial_cmp(&a.score()).unwrap());
+        programs.sort_by(|a, b| b.score().total_cmp(&a.score()));
         programs.into_iter().take(n).collect()
     }
 
     /// Get top N documents by score
     pub fn top_documents(&self, n: usize) -> Vec<&UsageRecord> {
         let mut documents: Vec<_> = self.documents.values().collect();
-        documents.sort_by(|a, b| b.score().partial_cmp(&a.score()).unwrap());
+        documents.sort_by(|a, b| b.score().total_cmp(&a.score()));
         documents.into_iter().take(n).collect()
     }
 
@@ -144,8 +144,10 @@ impl UsageData {
     pub fn cleanup(&mut self) {
         let threshold = 0.01;
 
-        self.programs.retain(|_, record| record.score() >= threshold);
-        self.documents.retain(|_, record| record.score() >= threshold);
+        self.programs
+            .retain(|_, record| record.score() >= threshold);
+        self.documents
+            .retain(|_, record| record.score() >= threshold);
 
         self.last_cleanup = Some(Utc::now());
     }
@@ -241,7 +243,10 @@ mod tests {
         record.record_launch();
         record.record_launch();
         let new_score = record.score();
-        assert!(new_score > score, "Score should increase with more launches");
+        assert!(
+            new_score > score,
+            "Score should increase with more launches"
+        );
     }
 
     #[test]

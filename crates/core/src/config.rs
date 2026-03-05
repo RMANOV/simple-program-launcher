@@ -153,29 +153,25 @@ impl Default for Config {
             pinned_programs: vec![],
             pinned_documents: vec![],
             pinned_clipboard: vec![],
-            shortcuts: vec![
-                LaunchItem {
-                    name: "Lock Screen".to_string(),
-                    path: if cfg!(target_os = "linux") {
-                        "loginctl".to_string()
-                    } else if cfg!(target_os = "macos") {
-                        "pmset".to_string()
-                    } else {
-                        "rundll32.exe".to_string()
-                    },
-                    icon: None,
-                    args: if cfg!(target_os = "linux") {
-                        vec!["lock-session".to_string()]
-                    } else if cfg!(target_os = "macos") {
-                        vec!["displaysleepnow".to_string()]
-                    } else {
-                        vec![
-                            "user32.dll,LockWorkStation".to_string(),
-                        ]
-                    },
-                    item_type: ItemType::Shortcut,
+            shortcuts: vec![LaunchItem {
+                name: "Lock Screen".to_string(),
+                path: if cfg!(target_os = "linux") {
+                    "loginctl".to_string()
+                } else if cfg!(target_os = "macos") {
+                    "pmset".to_string()
+                } else {
+                    "rundll32.exe".to_string()
                 },
-            ],
+                icon: None,
+                args: if cfg!(target_os = "linux") {
+                    vec!["lock-session".to_string()]
+                } else if cfg!(target_os = "macos") {
+                    vec!["displaysleepnow".to_string()]
+                } else {
+                    vec!["user32.dll,LockWorkStation".to_string()]
+                },
+                item_type: ItemType::Shortcut,
+            }],
             max_frequent_programs: default_max_frequent(),
             max_frequent_documents: default_max_frequent(),
             max_clipboard_history: default_max_clipboard(),
@@ -294,7 +290,12 @@ impl ConfigManager {
             }
         })?;
 
-        watcher.watch(config_path.parent().unwrap(), RecursiveMode::NonRecursive)?;
+        watcher.watch(
+            config_path
+                .parent()
+                .context("Config path has no parent directory")?,
+            RecursiveMode::NonRecursive,
+        )?;
 
         Ok(Self {
             config,
@@ -305,7 +306,10 @@ impl ConfigManager {
 
     /// Get a read lock on the config
     pub fn get(&self) -> std::sync::RwLockReadGuard<'_, Config> {
-        self.config.read().unwrap()
+        self.config.read().unwrap_or_else(|poisoned| {
+            log::warn!("Config lock was poisoned, recovering");
+            poisoned.into_inner()
+        })
     }
 
     /// Get a write lock and save after modification
@@ -313,7 +317,10 @@ impl ConfigManager {
     where
         F: FnOnce(&mut Config),
     {
-        let mut config = self.config.write().unwrap();
+        let mut config = self.config.write().unwrap_or_else(|poisoned| {
+            log::warn!("Config lock was poisoned, recovering");
+            poisoned.into_inner()
+        });
         f(&mut config);
         config.save()
     }

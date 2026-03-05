@@ -50,7 +50,12 @@ fn fuzzy_score(query: &str, text: &str) -> i32 {
             }
 
             // Word start bonus
-            if t_idx == 0 || matches!(text_chars.get(t_idx.wrapping_sub(1)), Some(' ' | '_' | '-' | '.' | '/' | '\\')) {
+            if t_idx == 0
+                || matches!(
+                    text_chars.get(t_idx.wrapping_sub(1)),
+                    Some(' ' | '_' | '-' | '.' | '/' | '\\')
+                )
+            {
                 score += 5;
             }
 
@@ -68,7 +73,11 @@ fn fuzzy_score(query: &str, text: &str) -> i32 {
 }
 
 /// Search clipboard history with fuzzy matching
-fn fuzzy_search_clipboard(query: &str, history: &[ClipboardEntry], limit: usize) -> Vec<ClipboardEntry> {
+fn fuzzy_search_clipboard(
+    query: &str,
+    history: &[ClipboardEntry],
+    limit: usize,
+) -> Vec<ClipboardEntry> {
     if query.is_empty() {
         return history.iter().take(limit).cloned().collect();
     }
@@ -77,12 +86,33 @@ fn fuzzy_search_clipboard(query: &str, history: &[ClipboardEntry], limit: usize)
         .iter()
         .filter_map(|entry| {
             let score = fuzzy_score(query, &entry.text);
-            if score > 0 { Some((score, entry)) } else { None }
+            if score > 0 {
+                Some((score, entry))
+            } else {
+                None
+            }
         })
         .collect();
 
     scored.sort_by(|a, b| b.0.cmp(&a.0));
-    scored.into_iter().take(limit).map(|(_, e)| e.clone()).collect()
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, e)| e.clone())
+        .collect()
+}
+
+/// Truncate a string to `max_len` bytes (including "..."), respecting UTF-8 char boundaries.
+fn truncate_preview(s: &str, max_len: usize) -> String {
+    if s.len() > max_len {
+        let mut end = max_len.saturating_sub(3);
+        while end > 0 && !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &s[..end])
+    } else {
+        s.to_string()
+    }
 }
 
 /// Clipboard history entry with usage tracking
@@ -111,12 +141,7 @@ impl ClipboardEntry {
 
     /// Update the preview string based on current state
     fn update_preview(&mut self) {
-        let truncated = if self.text.len() > 40 {
-            format!("{}...", &self.text[..37])
-        } else {
-            self.text.clone()
-        }
-        .replace('\n', " ");
+        let truncated = truncate_preview(&self.text, 40).replace('\n', " ");
 
         let mut preview = truncated;
         if self.count > 0 {
@@ -337,10 +362,8 @@ impl LauncherApp {
                     }
 
                     // Check if entry already exists
-                    if let Some(existing) = self
-                        .clipboard_history
-                        .iter_mut()
-                        .find(|e| e.text == text)
+                    if let Some(existing) =
+                        self.clipboard_history.iter_mut().find(|e| e.text == text)
                     {
                         // Update last_used timestamp
                         existing.last_used =
@@ -412,11 +435,9 @@ impl LauncherApp {
 
     /// Pin an item to config
     fn pin_item(&self, item: LaunchItem) {
-        let _ = self.config_manager.modify(|config| {
-            match item.item_type {
-                ItemType::Program | ItemType::Shortcut => config.pin_program(item),
-                ItemType::Document => config.pin_document(item),
-            }
+        let _ = self.config_manager.modify(|config| match item.item_type {
+            ItemType::Program | ItemType::Shortcut => config.pin_program(item),
+            ItemType::Document => config.pin_document(item),
         });
     }
 
@@ -555,8 +576,15 @@ impl eframe::App for LauncherApp {
             drop(config);
 
             for (idx, key) in [
-                Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5,
-                Key::Num6, Key::Num7, Key::Num8, Key::Num9,
+                Key::Num1,
+                Key::Num2,
+                Key::Num3,
+                Key::Num4,
+                Key::Num5,
+                Key::Num6,
+                Key::Num7,
+                Key::Num8,
+                Key::Num9,
             ]
             .iter()
             .enumerate()
@@ -627,7 +655,8 @@ impl eframe::App for LauncherApp {
                                 self.pending_launch = Some(item.clone());
                             }
 
-                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
+                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
+                            // 📌
                         });
                         shortcut_num += 1;
                     }
@@ -697,7 +726,8 @@ impl eframe::App for LauncherApp {
                                 self.pending_launch = Some(item.clone());
                             }
 
-                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
+                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
+                            // 📌
                         });
                         shortcut_num += 1;
                     }
@@ -761,7 +791,8 @@ impl eframe::App for LauncherApp {
                     ui.add_space(4.0);
 
                     // Fuzzy search results
-                    let pinned_set: std::collections::HashSet<_> = pinned_clipboard.iter().collect();
+                    let pinned_set: std::collections::HashSet<_> =
+                        pinned_clipboard.iter().collect();
                     let search_results = fuzzy_search_clipboard(
                         &self.clipboard_search_query,
                         &self.clipboard_history,
@@ -798,16 +829,18 @@ impl eframe::App for LauncherApp {
                                 self.pending_pin_clipboard = Some(entry.text.clone());
                             }
 
-                            ui.label(
-                                RichText::new("\u{1F4CB}").color(ThemeColors::CLIPBOARD_ICON),
-                            );
+                            ui.label(RichText::new("\u{1F4CB}").color(ThemeColors::CLIPBOARD_ICON));
                         });
                     }
 
                     // Show pinned clipboard section
                     if !pinned_clipboard.is_empty() {
                         ui.add_space(4.0);
-                        ui.label(RichText::new("Pinned").color(ThemeColors::SECTION_HEADER).size(11.0));
+                        ui.label(
+                            RichText::new("Pinned")
+                                .color(ThemeColors::SECTION_HEADER)
+                                .size(11.0),
+                        );
 
                         let query = &self.clipboard_search_query;
                         for text in &pinned_clipboard {
@@ -816,11 +849,7 @@ impl eframe::App for LauncherApp {
                                 continue;
                             }
 
-                            let preview = if text.len() > 47 {
-                                format!("{}...", &text[..47])
-                            } else {
-                                text.clone()
-                            };
+                            let preview = truncate_preview(text, 50);
 
                             ui.horizontal(|ui| {
                                 let response = ui.add(
@@ -843,7 +872,8 @@ impl eframe::App for LauncherApp {
                                     self.pending_unpin_clipboard = Some(text.clone());
                                 }
 
-                                ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON)); // 📌
+                                ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
+                                // 📌
                             });
                         }
                     }
@@ -873,9 +903,8 @@ impl eframe::App for LauncherApp {
                                 self.pending_launch = Some(item.clone());
                             }
 
-                            ui.label(
-                                RichText::new("\u{26A1}").color(ThemeColors::SHORTCUT_ICON),
-                            ); // ⚡
+                            ui.label(RichText::new("\u{26A1}").color(ThemeColors::SHORTCUT_ICON));
+                            // ⚡
                         });
                         shortcut_num += 1;
                     }
@@ -885,10 +914,7 @@ impl eframe::App for LauncherApp {
                 // === Add Shortcut Button ===
                 ui.add_space(4.0);
                 if ui
-                    .add(
-                        egui::Button::new("[+ Add Shortcut]")
-                            .fill(egui::Color32::TRANSPARENT),
-                    )
+                    .add(egui::Button::new("[+ Add Shortcut]").fill(egui::Color32::TRANSPARENT))
                     .clicked()
                 {
                     self.show_add_dialog = true;
