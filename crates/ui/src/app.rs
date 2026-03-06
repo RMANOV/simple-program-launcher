@@ -17,6 +17,19 @@ use std::sync::{Arc, Mutex};
 /// Default display limit for clipboard in UI (scrollable for more)
 const CLIPBOARD_DISPLAY_LIMIT: usize = 10;
 
+/// Extract the base command name from a path (e.g., "/usr/bin/python3" → "python3")
+fn base_cmd(path: &str) -> &str {
+    path.split_whitespace()
+        .next()
+        .and_then(|p| p.rsplit('/').next())
+        .unwrap_or(path)
+}
+
+/// Check if two launch items refer to the same program
+fn same_item(a: &LaunchItem, b: &LaunchItem) -> bool {
+    a.name == b.name || base_cmd(&a.path) == base_cmd(&b.path)
+}
+
 /// Fuzzy search scoring - matches Python implementation
 fn fuzzy_score(query: &str, text: &str) -> i32 {
     let query_lower = query.to_lowercase();
@@ -674,7 +687,8 @@ impl eframe::App for LauncherApp {
                 let frequent_programs: Vec<_> = self
                     .frequent_programs
                     .iter()
-                    .filter(|p| !pinned_programs.iter().any(|pp| pp.path == p.path))
+                    .filter(|p| !pinned_programs.iter().any(|pp| same_item(pp, p)))
+                    .filter(|p| !shortcuts.iter().any(|s| same_item(s, p)))
                     .take(max_frequent_programs)
                     .cloned()
                     .collect();
@@ -745,7 +759,7 @@ impl eframe::App for LauncherApp {
                 let recent_docs: Vec<_> = self
                     .recent_documents
                     .iter()
-                    .filter(|d| !pinned_documents.iter().any(|pd| pd.path == d.path))
+                    .filter(|d| !pinned_documents.iter().any(|pd| same_item(pd, d)))
                     .take(max_frequent_documents)
                     .cloned()
                     .collect();
