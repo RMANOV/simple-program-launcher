@@ -939,9 +939,9 @@ impl eframe::App for LauncherApp {
                 self.show_add_dialog = true;
             }
 
-            // Adaptive height: resize viewport to fit content
-            let content_h = ui.min_rect().height();
-            let chrome_padding = 32.0; // CentralPanel frame margins
+            // Adaptive height: cursor.y = bottom of last widget, max_rect.top = panel top
+            let content_h = ui.cursor().min.y - ui.max_rect().min.y;
+            let chrome_padding = 16.0;
             let max_height = 800.0_f32;
             let desired = (content_h + chrome_padding).min(max_height).max(60.0);
             if content_h > 10.0 && (desired - self.last_height).abs() > 2.0 {
@@ -983,8 +983,7 @@ pub fn run_popup(
             .with_position([position.0 as f32, position.1 as f32])
             .with_decorations(false)
             .with_transparent(true)
-            .with_always_on_top()
-            .with_resizable(false),
+            .with_always_on_top(),
         ..Default::default()
     };
 
