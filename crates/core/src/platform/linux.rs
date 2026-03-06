@@ -25,9 +25,7 @@ impl LinuxDataSource {
 
     /// Parse recently-used.xbel file
     fn parse_recently_used(&self) -> Result<Vec<RecentItem>> {
-        let xbel_path = self
-            .home_dir
-            .join(".local/share/recently-used.xbel");
+        let xbel_path = self.home_dir.join(".local/share/recently-used.xbel");
 
         if !xbel_path.exists() {
             return Ok(vec![]);
@@ -95,7 +93,8 @@ impl LinuxDataSource {
             PathBuf::from("/usr/local/share/applications"),
             self.home_dir.join(".local/share/applications"),
             PathBuf::from("/var/lib/flatpak/exports/share/applications"),
-            self.home_dir.join(".local/share/flatpak/exports/share/applications"),
+            self.home_dir
+                .join(".local/share/flatpak/exports/share/applications"),
         ];
 
         let mut entries = Vec::new();
@@ -222,9 +221,7 @@ impl PlatformDataSource for LinuxDataSource {
             .filter_map(|item| {
                 // Convert file:// URL to path
                 let path = if item.href.starts_with("file://") {
-                    urlencoding::decode(&item.href[7..])
-                        .ok()?
-                        .to_string()
+                    urlencoding::decode(&item.href[7..]).ok()?.to_string()
                 } else {
                     return None;
                 };
@@ -234,10 +231,7 @@ impl PlatformDataSource for LinuxDataSource {
                     return None;
                 }
 
-                let name = Path::new(&path)
-                    .file_name()?
-                    .to_string_lossy()
-                    .to_string();
+                let name = Path::new(&path).file_name()?.to_string_lossy().to_string();
 
                 Some(LaunchItem {
                     name,

@@ -282,12 +282,17 @@ pub struct LauncherApp {
 
     // Frame counter for delayed focus check
     frame_count: u32,
+
+    // Adaptive window sizing
+    width: f32,
+    last_height: f32,
 }
 
 impl LauncherApp {
     pub fn new(
         config_manager: Arc<ConfigManager>,
         usage_tracker: Arc<Mutex<UsageTracker>>,
+        width: f32,
     ) -> Self {
         let platform = Box::new(get_data_source());
         let clipboard = Clipboard::new().ok();
@@ -328,6 +333,8 @@ impl LauncherApp {
             pending_pin_clipboard: None,
             pending_unpin_clipboard: None,
             frame_count: 0,
+            width,
+            last_height: 0.0,
         }
     }
 
@@ -629,7 +636,7 @@ impl eframe::App for LauncherApp {
 
         // Main panel
         CentralPanel::default().show(ctx, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
+            let scroll_output = ScrollArea::vertical().show(ui, |ui| {
                 let mut shortcut_num = 1usize;
 
                 // === Pinned Programs ===
@@ -920,6 +927,18 @@ impl eframe::App for LauncherApp {
                     self.show_add_dialog = true;
                 }
             });
+
+            // Adaptive height: resize viewport to fit content
+            let content_h = scroll_output.content_size.y;
+            let panel_padding = 16.0;
+            let max_height = 800.0_f32;
+            let desired = (content_h + panel_padding).min(max_height).max(60.0);
+            if (desired - self.last_height).abs() > 2.0 {
+                self.last_height = desired;
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
+                    self.width, desired,
+                )));
+            }
         });
 
         // Show add dialog if requested
@@ -949,7 +968,7 @@ pub fn run_popup(
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([width, 400.0])
+            .with_inner_size([width, 100.0])
             .with_position([position.0 as f32, position.1 as f32])
             .with_decorations(false)
             .with_transparent(true)
@@ -965,6 +984,7 @@ pub fn run_popup(
             Ok(Box::new(LauncherApp::new(
                 config_manager.clone(),
                 usage_tracker.clone(),
+                width,
             )))
         }),
     )

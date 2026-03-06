@@ -64,15 +64,16 @@ impl MacOSDataSource {
         let info_plist = app_path.join("Contents/Info.plist");
 
         // Try to get the app name from the bundle name
-        let name = app_path
-            .file_stem()?
-            .to_string_lossy()
-            .to_string();
+        let name = app_path.file_stem()?.to_string_lossy().to_string();
 
         // Try to parse Info.plist for display name
         let display_name = if info_plist.exists() {
             self.parse_info_plist(&info_plist)
-                .and_then(|info| info.get("CFBundleDisplayName").or(info.get("CFBundleName")).cloned())
+                .and_then(|info| {
+                    info.get("CFBundleDisplayName")
+                        .or(info.get("CFBundleName"))
+                        .cloned()
+                })
                 .unwrap_or(name.clone())
         } else {
             name.clone()
@@ -117,7 +118,8 @@ impl MacOSDataSource {
         // Use mdfind to find recently modified files
         let output = Command::new("mdfind")
             .args([
-                "-onlyin", self.home_dir.to_str().unwrap_or("~"),
+                "-onlyin",
+                self.home_dir.to_str().unwrap_or("~"),
                 "kMDItemLastUsedDate > $time.today(-7)",
             ])
             .output()
@@ -146,7 +148,9 @@ impl MacOSDataSource {
     fn get_frequent_from_launch_services(&self, limit: usize) -> Result<Vec<String>> {
         // Try to read launch services database
         // This is a simplified approach - the actual database is more complex
-        let ls_path = self.home_dir.join("Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist");
+        let ls_path = self.home_dir.join(
+            "Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist",
+        );
 
         if !ls_path.exists() {
             return Ok(vec![]);
@@ -215,10 +219,7 @@ impl PlatformDataSource for MacOSDataSource {
                     return None;
                 }
 
-                let name = path
-                    .file_name()?
-                    .to_string_lossy()
-                    .to_string();
+                let name = path.file_name()?.to_string_lossy().to_string();
 
                 Some(LaunchItem {
                     name,
