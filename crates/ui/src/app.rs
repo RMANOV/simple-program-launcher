@@ -334,7 +334,7 @@ impl LauncherApp {
             pending_unpin_clipboard: None,
             frame_count: 0,
             width,
-            last_height: 0.0,
+            last_height: 400.0,
         }
     }
 
@@ -930,10 +930,10 @@ impl eframe::App for LauncherApp {
 
             // Adaptive height: resize viewport to fit content
             let content_h = scroll_output.content_size.y;
-            let panel_padding = 16.0;
+            let chrome_padding = 32.0; // CentralPanel frame margins
             let max_height = 800.0_f32;
-            let desired = (content_h + panel_padding).min(max_height).max(60.0);
-            if (desired - self.last_height).abs() > 2.0 {
+            let desired = (content_h + chrome_padding).min(max_height).max(60.0);
+            if content_h > 10.0 && (desired - self.last_height).abs() > 2.0 {
                 self.last_height = desired;
                 ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
                     self.width, desired,
@@ -968,7 +968,7 @@ pub fn run_popup(
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([width, 100.0])
+            .with_inner_size([width, 400.0])
             .with_position([position.0 as f32, position.1 as f32])
             .with_decorations(false)
             .with_transparent(true)
