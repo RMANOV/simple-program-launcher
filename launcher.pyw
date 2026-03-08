@@ -34,12 +34,29 @@ except ImportError:
     print("Error: tkinter not available. Install python3-tk package.")
     sys.exit(1)
 
-try:
-    from pynput import mouse
-    from pynput.mouse import Listener as MouseListener
-except ImportError:
-    print("Error: pynput not available. Install with: pip install pynput")
-    sys.exit(1)
+# Input backend: evdev on Linux (works on Wayland), pynput elsewhere
+_INPUT_BACKEND = None
+
+if sys.platform == 'linux':
+    try:
+        import evdev
+        import select as _select
+        _INPUT_BACKEND = 'evdev'
+    except ImportError:
+        pass
+
+if _INPUT_BACKEND is None:
+    try:
+        from pynput import mouse
+        from pynput.mouse import Listener as MouseListener
+        _INPUT_BACKEND = 'pynput'
+    except ImportError:
+        if sys.platform == 'linux':
+            print("Error: No input backend. Install: pip install evdev")
+            print("  Also add user to 'input' group: sudo usermod -aG input $USER")
+        else:
+            print("Error: pynput not available. Install with: pip install pynput")
+        sys.exit(1)
 
 # Windows-specific imports
 if sys.platform == 'win32':
@@ -48,6 +65,79 @@ if sys.platform == 'win32':
         from ctypes import wintypes
     except ImportError:
         pass
+
+# ─── Wayland cursor position via subprocess KWin D-Bus query ───
+_WAYLAND = sys.platform == 'linux' and bool(os.environ.get('WAYLAND_DISPLAY'))
+_CURSOR_QUERY_SCRIPT = '/tmp/_launcher_cursor_query.py'
+_KWIN_CURSOR_JS = '/tmp/_launcher_kwin_cursor.js'
+
+_KWIN_JS_CONTENT = (
+    'var p = workspace.cursorPos;'
+    'callDBus("com.launcher.CursorHelper", "/CursorHelper", '
+    '"com.launcher.CursorHelper", "ReportPosition", p.x, p.y);'
+)
+
+_CURSOR_QUERY_CONTENT = '''\
+import sys, threading, subprocess, time
+try:
+    import dbus, dbus.service
+    from dbus.mainloop.glib import DBusGMainLoop
+    from gi.repository import GLib
+except ImportError:
+    sys.exit(1)
+
+DBusGMainLoop(set_as_default=True)
+bus = dbus.SessionBus()
+bus_name = dbus.service.BusName("com.launcher.CursorHelper", bus)
+result = [None]
+done = threading.Event()
+
+class Svc(dbus.service.Object):
+    @dbus.service.method("com.launcher.CursorHelper", in_signature="ii", out_signature="")
+    def ReportPosition(self, x, y):
+        result[0] = (int(x), int(y))
+        done.set()
+
+svc = Svc(bus, "/CursorHelper")
+loop = GLib.MainLoop()
+threading.Thread(target=loop.run, daemon=True).start()
+name = f"_cursor_{int(time.time()*1000)}"
+try:
+    subprocess.run(["gdbus", "call", "--session", "--dest", "org.kde.KWin",
+                    "--object-path", "/Scripting", "--method",
+                    "org.kde.kwin.Scripting.loadScript",
+                    "/tmp/_launcher_kwin_cursor.js", name],
+                   capture_output=True, timeout=1)
+    subprocess.run(["gdbus", "call", "--session", "--dest", "org.kde.KWin",
+                    "--object-path", "/Scripting", "--method",
+                    "org.kde.kwin.Scripting.start"],
+                   capture_output=True, timeout=1)
+except Exception:
+    sys.exit(1)
+
+done.wait(timeout=0.3)
+if result[0]:
+    print(f"{result[0][0]} {result[0][1]}")
+    try:
+        subprocess.run(["gdbus", "call", "--session", "--dest", "org.kde.KWin",
+                        "--object-path", "/Scripting", "--method",
+                        "org.kde.kwin.Scripting.unloadScript", name],
+                       capture_output=True, timeout=1)
+    except Exception:
+        pass
+else:
+    sys.exit(1)
+'''
+
+
+def _write_helper_scripts():
+    """Write subprocess helper scripts to /tmp (Wayland only)."""
+    if not _WAYLAND:
+        return
+    with open(_KWIN_CURSOR_JS, 'w') as f:
+        f.write(_KWIN_JS_CONTENT)
+    with open(_CURSOR_QUERY_SCRIPT, 'w') as f:
+        f.write(_CURSOR_QUERY_CONTENT)
 
 
 # ============== Configuration ==============
@@ -123,7 +213,7 @@ class Config:
                     max_clipboard_history=data.get("max_clipboard_history", 10000),
                     simultaneous_threshold_ms=data.get("trigger", {}).get("simultaneous_threshold_ms", 50),
                     debounce_ms=data.get("trigger", {}).get("debounce_ms", 500),
-                    ui_width=data.get("ui", {}).get("width", 300),
+                    ui_width=int(data.get("ui", {}).get("width", 300)),
                     dark_mode=data.get("ui", {}).get("dark_mode", True),
                 )
             except Exception as e:
@@ -613,6 +703,123 @@ class MouseInputListener:
         self.on_trigger(self.last_position)
 
 
+class EvdevMouseListener:
+    """Detect simultaneous L+R mouse clicks using evdev (works on Wayland)"""
+
+    def __init__(self, threshold_ms: int, debounce_ms: int, on_trigger: Callable[[tuple], None]):
+        self.threshold = threshold_ms / 1000.0
+        self.debounce = debounce_ms / 1000.0
+        self.on_trigger = on_trigger
+
+        self.left_pressed: Optional[float] = None
+        self.right_pressed: Optional[float] = None
+        self.last_trigger: Optional[float] = None
+        self.last_position = (0, 0)
+        self.last_press = (0.0, (0, 0))
+
+        self._thread: Optional[threading.Thread] = None
+        self._stop = False
+        self._xdisplay = None
+
+    def _get_cursor_position(self) -> tuple:
+        """Get cursor position. Subprocess KWin query on Wayland, Xlib fallback."""
+        if _WAYLAND:
+            try:
+                r = subprocess.run(
+                    [sys.executable, _CURSOR_QUERY_SCRIPT],
+                    capture_output=True, text=True, timeout=0.5)
+                if r.returncode == 0 and r.stdout.strip():
+                    parts = r.stdout.strip().split()
+                    return (int(parts[0]), int(parts[1]))
+            except Exception:
+                pass
+        # Fallback: Xlib (works on X11, stale on Wayland)
+        try:
+            if self._xdisplay is None:
+                from Xlib import display
+                self._xdisplay = display.Display()
+            data = self._xdisplay.screen().root.query_pointer()._data
+            return (data['root_x'], data['root_y'])
+        except Exception:
+            return (400, 300)
+
+    def _find_mouse_devices(self) -> list:
+        """Find all input devices that have BTN_LEFT (mice, touchpads)"""
+        devices = []
+        for path in evdev.list_devices():
+            try:
+                dev = evdev.InputDevice(path)
+                caps = dev.capabilities()
+                # EV_KEY = 1; check if BTN_LEFT (272) is in the key capabilities
+                if 1 in caps and 272 in caps[1]:
+                    print(f"  Found mouse: {dev.name}")
+                    devices.append(dev)
+            except Exception:
+                continue
+        return devices
+
+    def start(self):
+        """Start listening for mouse events via evdev"""
+        self._thread = threading.Thread(target=self._event_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        """Stop listening"""
+        self._stop = True
+
+    def _event_loop(self):
+        devices = self._find_mouse_devices()
+        if not devices:
+            print("ERROR: No mouse devices found.")
+            print("  Add user to 'input' group: sudo usermod -aG input $USER")
+            return
+
+        print(f"  Monitoring {len(devices)} device(s)")
+
+        while not self._stop:
+            r, _, _ = _select.select(devices, [], [], 0.1)
+            for dev in r:
+                try:
+                    for event in dev.read():
+                        if event.type == evdev.ecodes.EV_KEY:
+                            self._handle_button(event.code, event.value == 1)
+                except Exception:
+                    pass
+
+    def _handle_button(self, code: int, pressed: bool):
+        now = time.time()
+        if code == evdev.ecodes.BTN_LEFT:
+            self.left_pressed = now if pressed else None
+        elif code == evdev.ecodes.BTN_RIGHT:
+            self.right_pressed = now if pressed else None
+        else:
+            return
+
+        if pressed:
+            self.last_press = (now, self.last_position)
+            self._check_trigger()
+
+    def _check_trigger(self):
+        if self.left_pressed is None or self.right_pressed is None:
+            return
+
+        diff = abs(self.left_pressed - self.right_pressed)
+        if diff > self.threshold:
+            return
+
+        now = time.time()
+        if self.last_trigger and (now - self.last_trigger) < self.debounce:
+            return
+
+        self.last_trigger = now
+        self.left_pressed = None
+        self.right_pressed = None
+
+        pos = self._get_cursor_position()
+        self.last_position = pos
+        self.on_trigger(pos)
+
+
 # ============== UI ==============
 
 class LauncherPopup:
@@ -635,6 +842,8 @@ class LauncherPopup:
         self.position = position
         self._mouse_listener = mouse_listener
         self._shown_time = 0.0
+        self._last_checked_press = 0.0
+        self._tkinter_click_time = 0.0
 
         self.root: Optional[tk.Tk] = None
         self.shortcut_num = 1
@@ -701,6 +910,8 @@ class LauncherPopup:
 
         # Bindings
         self.root.bind('<Escape>', lambda e: self.close())
+        self.root.bind_all('<Button-1>', self._on_tkinter_click)
+        self.root.bind_all('<Button-3>', self._on_tkinter_click)
 
         # Number key bindings
         for i in range(1, 10):
@@ -711,6 +922,7 @@ class LauncherPopup:
 
         # Click-outside polling
         self._shown_time = time.time()
+        self._last_checked_press = 0.0
         self.root.after(100, self._check_click_outside)
 
         # Start main loop
@@ -881,8 +1093,8 @@ class LauncherPopup:
                 relief=tk.FLAT,
                 cursor="hand2",
                 font=('', 8),
-                command=lambda: self._pin_item(item),
             )
+            pin_btn.configure(command=lambda b=pin_btn: self._pin_item(item, b))
             pin_btn.pack(side=tk.RIGHT, padx=2)
 
         # Icon
@@ -1026,7 +1238,7 @@ class LauncherPopup:
 
         self.close()
 
-    def _pin_item(self, item: LaunchItem):
+    def _pin_item(self, item: LaunchItem, btn: tk.Button = None):
         """Pin an item to config"""
         if item.item_type == 'document':
             if item.path not in [d.path for d in self.config.pinned_documents]:
@@ -1035,6 +1247,9 @@ class LauncherPopup:
             if item.path not in [p.path for p in self.config.pinned_programs]:
                 self.config.pinned_programs.append(item)
         self.config.save()
+        # Visual feedback
+        if btn:
+            btn.configure(text="\U0001F4CC", fg="#ffc832", state=tk.DISABLED)
 
     def _paste_clipboard(self, text: str):
         """Paste clipboard item"""
@@ -1055,29 +1270,41 @@ class LauncherPopup:
         self.config.shortcuts.append(item)
         self.config.save()
 
+    def _on_tkinter_click(self, event):
+        """Record timestamp of clicks on the popup window."""
+        self._tkinter_click_time = time.time()
+
     def _check_click_outside(self):
-        """Poll for clicks outside the popup to close it"""
+        """Close popup when a click happens outside it.
+
+        Uses timestamp correlation: evdev sees ALL clicks globally, tkinter
+        only sees clicks ON the popup. If evdev has a fresh click but tkinter
+        didn't fire within 200ms, the click was outside -> close.
+        """
         if not self.root:
             return
+        # Grace period: ignore during the first 0.5s (trigger L+R click)
+        if time.time() - self._shown_time < 0.5:
+            self.root.after(100, self._check_click_outside)
+            return
+        # Need evdev listener for click detection
         if not self._mouse_listener:
             self.root.after(200, self._check_click_outside)
             return
-        elapsed = time.time() - self._shown_time
-        if elapsed >= 0.3:
-            press_time, (px, py) = self._mouse_listener.last_press  # single atomic read
-            if press_time > self._shown_time + 0.3:
-                try:
-                    wx = self.root.winfo_rootx()
-                    wy = self.root.winfo_rooty()
-                    ww = self.root.winfo_width()
-                    wh = self.root.winfo_height()
-                    if not (wx <= px <= wx + ww and wy <= py <= wy + wh):
-                        self.close()
-                        return
-                except tk.TclError:
-                    pass
-        if self.root:
-            self.root.after(150, self._check_click_outside)
+        press_time, _ = self._mouse_listener.last_press
+        if press_time <= self._shown_time + 0.5 or press_time <= self._last_checked_press:
+            if self.root:
+                self.root.after(80, self._check_click_outside)
+            return
+        self._last_checked_press = press_time
+        # Timestamp correlation: tkinter click within 200ms of evdev click?
+        if abs(self._tkinter_click_time - press_time) < 0.2:
+            # Click was inside the popup
+            if self.root:
+                self.root.after(80, self._check_click_outside)
+            return
+        # Click was outside -> close
+        self.close()
 
     def close(self):
         """Close the popup"""
@@ -1097,11 +1324,13 @@ class Launcher:
         self.clipboard = ClipboardManager(self.config.max_clipboard_history)
         self.popup: Optional[LauncherPopup] = None
 
-        self.input_listener = MouseInputListener(
+        ListenerClass = EvdevMouseListener if _INPUT_BACKEND == 'evdev' else MouseInputListener
+        self.input_listener = ListenerClass(
             self.config.simultaneous_threshold_ms,
             self.config.debounce_ms,
             self._on_trigger,
         )
+        print(f"Input backend: {_INPUT_BACKEND}")
 
     def _on_trigger(self, position: tuple):
         """Handle trigger event"""
@@ -1123,6 +1352,7 @@ class Launcher:
         print(f"Trigger: L+R click (threshold: {self.config.simultaneous_threshold_ms}ms)")
         print("Press Ctrl+C to exit")
 
+        _write_helper_scripts()
         self.input_listener.start()
 
         try:
