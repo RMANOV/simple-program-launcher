@@ -16,6 +16,7 @@ Install: pip install pynput pywin32
 
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -464,9 +465,12 @@ def launch_item(item: LaunchItem):
             if item.item_type == 'document':
                 subprocess.Popen(['xdg-open', item.path])
             else:
-                subprocess.Popen([item.path] + item.args)
+                subprocess.Popen(
+                    [item.path] + item.args,
+                    start_new_session=True,
+                )
     except Exception as e:
-        print(f"Error launching {item.name}: {e}")
+        print(f"Error launching {item.name}: {e}", flush=True)
 
 
 # ============== Clipboard ==============
@@ -835,17 +839,18 @@ class LauncherPopup:
     SEPARATOR_COLOR = "#3c3c46"
 
     def __init__(self, position: tuple, config: Config, usage_tracker: UsageTracker,
-                 clipboard_manager: ClipboardManager, mouse_listener=None):
+                 clipboard_manager: ClipboardManager, mouse_listener=None, master=None):
         self.config = config
         self.usage_tracker = usage_tracker
         self.clipboard = clipboard_manager
         self.position = position
         self._mouse_listener = mouse_listener
+        self._master = master
         self._shown_time = 0.0
         self._last_checked_press = 0.0
         self._tkinter_click_time = 0.0
 
-        self.root: Optional[tk.Tk] = None
+        self.root: Optional[tk.Toplevel] = None
         self.shortcut_num = 1
         self._numbered_items: List[LaunchItem] = []
         self.clipboard_search_var: Optional[tk.StringVar] = None
@@ -853,7 +858,7 @@ class LauncherPopup:
 
     def show(self):
         """Show the popup window"""
-        self.root = tk.Tk()
+        self.root = tk.Toplevel(self._master)
         self.root.title("Launcher")
 
         # Remove window decorations
@@ -924,9 +929,6 @@ class LauncherPopup:
         self._shown_time = time.time()
         self._last_checked_press = 0.0
         self.root.after(100, self._check_click_outside)
-
-        # Start main loop
-        self.root.mainloop()
 
     def _build_content(self, parent: ttk.Frame):
         """Build the popup content"""
@@ -1323,6 +1325,8 @@ class Launcher:
         self.usage_tracker = UsageTracker()
         self.clipboard = ClipboardManager(self.config.max_clipboard_history)
         self.popup: Optional[LauncherPopup] = None
+        self._trigger_queue: queue.Queue = queue.Queue()
+        self._root: Optional[tk.Tk] = None
 
         ListenerClass = EvdevMouseListener if _INPUT_BACKEND == 'evdev' else MouseInputListener
         self.input_listener = ListenerClass(
@@ -1333,18 +1337,28 @@ class Launcher:
         print(f"Input backend: {_INPUT_BACKEND}")
 
     def _on_trigger(self, position: tuple):
-        """Handle trigger event"""
-        print(f"Trigger at {position}")
+        """Called from evdev thread — post to main thread via queue."""
+        self._trigger_queue.put(position)
 
-        # Close existing popup if any
+    def _poll_triggers(self):
+        """Poll trigger queue on main thread."""
+        try:
+            while True:
+                pos = self._trigger_queue.get_nowait()
+                self._handle_trigger(pos)
+        except queue.Empty:
+            pass
+        if self._root:
+            self._root.after(50, self._poll_triggers)
+
+    def _handle_trigger(self, position: tuple):
+        """Handle trigger on main thread — safe for tkinter."""
+        print(f"Trigger at {position}")
         if self.popup and self.popup.root:
             self.popup.close()
-
-        # Show new popup
-        self.popup = LauncherPopup(position, self.config, self.usage_tracker, self.clipboard, self.input_listener)
-
-        # Run in thread to not block input listener
-        threading.Thread(target=self.popup.show, daemon=True).start()
+        self.popup = LauncherPopup(position, self.config, self.usage_tracker,
+                                   self.clipboard, self.input_listener, self._root)
+        self.popup.show()
 
     def run(self):
         """Start the launcher"""
@@ -1355,15 +1369,26 @@ class Launcher:
         _write_helper_scripts()
         self.input_listener.start()
 
-        try:
-            # Keep main thread alive
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
+        import signal
+        self._root = tk.Tk()
+        self._root.withdraw()
+
+        def on_sigint(sig, frame):
             print("\nShutting down...")
             self.input_listener.stop()
+            self._root.quit()
+
+        signal.signal(signal.SIGINT, on_sigint)
+        self._root.after(50, self._poll_triggers)
+        self._root.mainloop()
 
 
 if __name__ == "__main__":
+    # Daemonize: redirect output to log when not on a terminal
+    if not sys.stdout.isatty():
+        _log = os.path.expanduser("~/.cache/launcher.log")
+        _f = open(_log, "a")
+        sys.stdout = sys.stderr = _f
+
     launcher = Launcher()
     launcher.run()
