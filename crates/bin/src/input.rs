@@ -2,10 +2,32 @@
 
 use evdev::{Device, InputEventKind, Key};
 use std::os::unix::io::AsRawFd;
+use std::process::Command as ProcCommand;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Query the current cursor position via X11 (works on Wayland via XWayland).
+fn query_cursor_position() -> (f64, f64) {
+    if let Ok(output) = ProcCommand::new("python3")
+        .args([
+            "-c",
+            "from Xlib import display;d=display.Display();p=d.screen().root.query_pointer()._data;print(p['root_x'],p['root_y'])",
+        ])
+        .output()
+    {
+        if let Ok(s) = std::string::String::from_utf8(output.stdout) {
+            let parts: Vec<&str> = s.trim().split_whitespace().collect();
+            if parts.len() == 2 {
+                if let (Ok(x), Ok(y)) = (parts[0].parse(), parts[1].parse()) {
+                    return (x, y);
+                }
+            }
+        }
+    }
+    (400.0, 300.0) // fallback: visible on screen
+}
 
 /// Trigger event sent when L+R click is detected
 #[derive(Debug, Clone)]
@@ -91,7 +113,11 @@ impl InputListener {
             right_time.duration_since(left_time)
         };
 
-        log::debug!("check_trigger: diff={:?} threshold={:?}", diff, self.simultaneous_threshold);
+        log::debug!(
+            "check_trigger: diff={:?} threshold={:?}",
+            diff,
+            self.simultaneous_threshold
+        );
         if diff > self.simultaneous_threshold {
             log::debug!("check_trigger: REJECTED - diff too large");
             return None;
@@ -114,7 +140,7 @@ impl InputListener {
         state.right_pressed = None;
 
         Some(TriggerEvent {
-            position: (0.0, 0.0), // evdev doesn't provide absolute position
+            position: query_cursor_position(),
             timestamp: now,
         })
     }
@@ -182,9 +208,8 @@ impl InputListener {
 
             loop {
                 // Wait for events on any device (100ms timeout)
-                let ret = unsafe {
-                    libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, 100)
-                };
+                let ret =
+                    unsafe { libc::poll(pollfds.as_mut_ptr(), pollfds.len() as libc::nfds_t, 100) };
 
                 if ret <= 0 {
                     continue; // Timeout or error, try again

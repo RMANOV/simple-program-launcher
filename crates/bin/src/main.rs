@@ -12,18 +12,15 @@ use std::sync::{Arc, Mutex};
 
 fn main() -> Result<()> {
     // Initialize logging
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .format_timestamp_secs()
-    .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_timestamp_secs()
+        .init();
 
     log::info!("Starting Simple Program Launcher");
 
     // Load configuration
-    let config_manager = Arc::new(
-        ConfigManager::new().context("Failed to initialize config manager")?,
-    );
+    let config_manager =
+        Arc::new(ConfigManager::new().context("Failed to initialize config manager")?);
 
     // Initialize usage tracker
     let usage_tracker = Arc::new(Mutex::new(
@@ -63,7 +60,11 @@ fn main() -> Result<()> {
                 );
 
                 // Show the popup window on main thread (required by winit)
-                if let Err(e) = run_popup(trigger.position, config_manager.clone(), usage_tracker.clone()) {
+                if let Err(e) = run_popup(
+                    trigger.position,
+                    config_manager.clone(),
+                    usage_tracker.clone(),
+                ) {
                     log::error!("Popup error: {}", e);
                 }
             }

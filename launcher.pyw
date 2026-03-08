@@ -198,7 +198,7 @@ class UsageRecord:
                 else:
                     decay = math.pow(2, -age.total_seconds() / half_life.total_seconds())
                     total += decay
-            except:
+            except Exception:
                 pass
 
         return total
@@ -296,6 +296,38 @@ def get_recent_files_windows(limit: int) -> List[LaunchItem]:
             ))
             if len(items) >= limit:
                 break
+
+    return items
+
+
+def get_recent_files_linux(limit: int) -> List[LaunchItem]:
+    """Get recent files from ~/.local/share/recently-used.xbel"""
+    import xml.etree.ElementTree as ET
+    from urllib.parse import unquote
+
+    xbel_path = Path.home() / '.local' / 'share' / 'recently-used.xbel'
+    if not xbel_path.exists():
+        return []
+
+    try:
+        tree = ET.parse(xbel_path)
+        root_el = tree.getroot()
+    except (ET.ParseError, OSError):
+        return []
+
+    items = []
+    bookmarks = [b for b in root_el.findall('bookmark')
+                 if b.get('href', '').startswith('file://')]
+    bookmarks.sort(key=lambda b: b.get('modified', ''), reverse=True)
+
+    for bookmark in bookmarks:
+        path_str = unquote(bookmark.get('href', '')[7:])
+        p = Path(path_str)
+        if not p.exists():
+            continue
+        items.append(LaunchItem(name=p.name, path=path_str, item_type="document"))
+        if len(items) >= limit:
+            break
 
     return items
 
@@ -524,6 +556,7 @@ class MouseInputListener:
         self.right_pressed: Optional[float] = None
         self.last_trigger: Optional[float] = None
         self.last_position = (0, 0)
+        self.last_press = (0.0, (0, 0))  # (time, (x, y)) — single atomic rebind
 
         self.listener: Optional[MouseListener] = None
 
@@ -548,6 +581,7 @@ class MouseInputListener:
         now = time.time()
 
         if pressed:
+            self.last_press = (now, (x, y))
             if button == mouse.Button.left:
                 self.left_pressed = now
             elif button == mouse.Button.right:
@@ -594,14 +628,17 @@ class LauncherPopup:
     SEPARATOR_COLOR = "#3c3c46"
 
     def __init__(self, position: tuple, config: Config, usage_tracker: UsageTracker,
-                 clipboard_manager: ClipboardManager):
+                 clipboard_manager: ClipboardManager, mouse_listener=None):
         self.config = config
         self.usage_tracker = usage_tracker
         self.clipboard = clipboard_manager
         self.position = position
+        self._mouse_listener = mouse_listener
+        self._shown_time = 0.0
 
         self.root: Optional[tk.Tk] = None
         self.shortcut_num = 1
+        self._numbered_items: List[LaunchItem] = []
         self.clipboard_search_var: Optional[tk.StringVar] = None
         self.clipboard_frame: Optional[tk.Frame] = None
 
@@ -613,9 +650,8 @@ class LauncherPopup:
         # Remove window decorations
         self.root.overrideredirect(True)
 
-        # Position at cursor
+        # Position at cursor (geometry set after content is built)
         x, y = self.position
-        self.root.geometry(f"{self.config.ui_width}x400+{int(x)}+{int(y)}")
 
         # Dark theme
         self.root.configure(bg=self.BG_COLOR)
@@ -650,9 +686,21 @@ class LauncherPopup:
         # Build content
         self._build_content(scrollable_frame)
 
+        # Adaptive window height
+        self.root.update_idletasks()
+        content_height = scrollable_frame.winfo_reqheight() + 16
+        screen_height = self.root.winfo_screenheight()
+        height = min(content_height, screen_height - 50)
+        height = max(height, 100)
+        screen_width = self.root.winfo_screenwidth()
+        if x + self.config.ui_width > screen_width - 10:
+            x = max(0, screen_width - self.config.ui_width - 10)
+        if y + height > screen_height - 40:
+            y = max(0, screen_height - height - 40)
+        self.root.geometry(f"{self.config.ui_width}x{height}+{int(x)}+{int(y)}")
+
         # Bindings
         self.root.bind('<Escape>', lambda e: self.close())
-        self.root.bind('<FocusOut>', lambda e: self.close())
 
         # Number key bindings
         for i in range(1, 10):
@@ -661,12 +709,17 @@ class LauncherPopup:
         # Keep on top
         self.root.attributes('-topmost', True)
 
+        # Click-outside polling
+        self._shown_time = time.time()
+        self.root.after(100, self._check_click_outside)
+
         # Start main loop
         self.root.mainloop()
 
     def _build_content(self, parent: ttk.Frame):
         """Build the popup content"""
         self.shortcut_num = 1
+        self._numbered_items = []
 
         # Pinned Programs
         if self.config.pinned_programs:
@@ -697,14 +750,23 @@ class LauncherPopup:
         # Recent Documents
         if sys.platform == 'win32':
             recent_docs = get_recent_files_windows(self.config.max_frequent_documents)
-            pinned_doc_paths = {d.path for d in self.config.pinned_documents}
-            recent_docs = [d for d in recent_docs if d.path not in pinned_doc_paths]
+        else:
+            recent_docs = get_recent_files_linux(self.config.max_frequent_documents)
+        pinned_doc_paths = {d.path for d in self.config.pinned_documents}
+        recent_docs = [d for d in recent_docs if d.path not in pinned_doc_paths]
 
-            if recent_docs:
-                self._add_section(parent, "Recent Documents")
-                for item in recent_docs[:self.config.max_frequent_documents]:
-                    self._add_item_row(parent, item, show_pin=True)
-                self._add_separator(parent)
+        if recent_docs:
+            self._add_section(parent, "Recent Documents")
+            for item in recent_docs[:self.config.max_frequent_documents]:
+                self._add_item_row(parent, item, show_pin=True)
+            self._add_separator(parent)
+
+        # Shortcuts
+        if self.config.shortcuts:
+            self._add_section(parent, "Shortcuts")
+            for item in self.config.shortcuts:
+                self._add_item_row(parent, item, icon="\u26a1")
+            self._add_separator(parent)
 
         # Clipboard History with instant search
         self.clipboard.update()
@@ -742,13 +804,6 @@ class LauncherPopup:
 
             # Show initial results
             self._update_clipboard_results(parent)
-            self._add_separator(parent)
-
-        # Shortcuts
-        if self.config.shortcuts:
-            self._add_section(parent, "Shortcuts")
-            for item in self.config.shortcuts:
-                self._add_item_row(parent, item, icon="\u26a1")
             self._add_separator(parent)
 
         # Add Shortcut button
@@ -795,6 +850,7 @@ class LauncherPopup:
         # Store for keyboard shortcut
         item._shortcut_num = self.shortcut_num
         self.shortcut_num += 1
+        self._numbered_items.append(item)
 
         # Main button
         btn = tk.Button(
@@ -924,7 +980,7 @@ class LauncherPopup:
                 self.clipboard_frame,
                 text="Pinned Clipboard",
                 bg=self.BG_COLOR,
-                fg=self.SECTION_HEADER if hasattr(self, 'SECTION_HEADER') else self.DIM_TEXT,
+                fg=self.DIM_TEXT,
                 font=('', 10),
             )
             pinned_label.pack(fill=tk.X, pady=(4, 2))
@@ -953,15 +1009,8 @@ class LauncherPopup:
     def _make_key_handler(self, num: int):
         """Create a keyboard shortcut handler"""
         def handler(event):
-            # Find item with this shortcut number
-            all_items = (
-                list(self.config.pinned_programs) +
-                [LaunchItem(name=r.name, path=r.path) for r in self.usage_tracker.top_programs(5)] +
-                list(self.config.pinned_documents) +
-                list(self.config.shortcuts)
-            )
-            if num <= len(all_items):
-                self._launch(all_items[num - 1])
+            if num <= len(self._numbered_items):
+                self._launch(self._numbered_items[num - 1])
         return handler
 
     def _launch(self, item: LaunchItem):
@@ -1006,6 +1055,30 @@ class LauncherPopup:
         self.config.shortcuts.append(item)
         self.config.save()
 
+    def _check_click_outside(self):
+        """Poll for clicks outside the popup to close it"""
+        if not self.root:
+            return
+        if not self._mouse_listener:
+            self.root.after(200, self._check_click_outside)
+            return
+        elapsed = time.time() - self._shown_time
+        if elapsed >= 0.3:
+            press_time, (px, py) = self._mouse_listener.last_press  # single atomic read
+            if press_time > self._shown_time + 0.3:
+                try:
+                    wx = self.root.winfo_rootx()
+                    wy = self.root.winfo_rooty()
+                    ww = self.root.winfo_width()
+                    wh = self.root.winfo_height()
+                    if not (wx <= px <= wx + ww and wy <= py <= wy + wh):
+                        self.close()
+                        return
+                except tk.TclError:
+                    pass
+        if self.root:
+            self.root.after(150, self._check_click_outside)
+
     def close(self):
         """Close the popup"""
         if self.root:
@@ -1039,7 +1112,7 @@ class Launcher:
             self.popup.close()
 
         # Show new popup
-        self.popup = LauncherPopup(position, self.config, self.usage_tracker, self.clipboard)
+        self.popup = LauncherPopup(position, self.config, self.usage_tracker, self.clipboard, self.input_listener)
 
         # Run in thread to not block input listener
         threading.Thread(target=self.popup.show, daemon=True).start()

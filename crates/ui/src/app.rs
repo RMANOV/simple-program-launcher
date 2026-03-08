@@ -3,7 +3,7 @@
 use crate::theme::{dark_theme, ThemeColors};
 use arboard::Clipboard;
 use chrono::Utc;
-use eframe::egui::{self, CentralPanel, Context, Key, RichText, Vec2};
+use eframe::egui::{self, CentralPanel, Context, Key, RichText, ScrollArea, Vec2};
 use launcher_core::{
     config::{ItemType, LaunchItem},
     platform::{get_data_source, PlatformDataSource},
@@ -299,6 +299,8 @@ pub struct LauncherApp {
     // Adaptive window sizing
     width: f32,
     last_height: f32,
+    last_resize_frame: u32,
+    has_been_focused: bool,
 }
 
 impl LauncherApp {
@@ -348,6 +350,8 @@ impl LauncherApp {
             frame_count: 0,
             width,
             last_height: 400.0,
+            last_resize_frame: 0,
+            has_been_focused: false,
         }
     }
 
@@ -624,8 +628,10 @@ impl eframe::App for LauncherApp {
             return;
         }
 
-        // Apply theme
-        ctx.set_style(dark_theme());
+        // Apply theme (once — dark_theme() allocates a full Style struct)
+        if self.frame_count == 0 {
+            ctx.set_style(dark_theme());
+        }
 
         // Get config data we need (clone to avoid holding lock)
         let (
@@ -647,320 +653,346 @@ impl eframe::App for LauncherApp {
             )
         };
 
-        // Main panel — no ScrollArea so window height = content height
+        // Main panel — ScrollArea with auto_shrink for hybrid adaptive height
+        let mut resize_to: Option<f32> = None;
+
         CentralPanel::default().show(ctx, |ui| {
-            let mut shortcut_num = 1usize;
+            let scroll_output = ScrollArea::vertical()
+                .auto_shrink(true)
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                .show(ui, |ui| {
+                    let mut shortcut_num = 1usize;
 
-            // === Pinned Programs ===
-            if !pinned_programs.is_empty() {
-                Self::section_header(ui, "Pinned Programs");
-                for item in &pinned_programs {
-                    ui.horizontal(|ui| {
-                        if shortcut_num <= 9 {
-                            ui.label(
-                                RichText::new(format!("[{}]", shortcut_num))
-                                    .color(ThemeColors::DIM_TEXT)
-                                    .monospace(),
-                            );
+                    // === Pinned Programs ===
+                    if !pinned_programs.is_empty() {
+                        Self::section_header(ui, "Pinned Programs");
+                        for item in &pinned_programs {
+                            ui.horizontal(|ui| {
+                                if shortcut_num <= 9 {
+                                    ui.label(
+                                        RichText::new(format!("[{}]", shortcut_num))
+                                            .color(ThemeColors::DIM_TEXT)
+                                            .monospace(),
+                                    );
+                                }
+
+                                let response = ui.add(
+                                    egui::Button::new(&item.name)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.pending_launch = Some(item.clone());
+                                }
+
+                                ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
+                                // 📌
+                            });
+                            shortcut_num += 1;
                         }
-
-                        let response = ui.add(
-                            egui::Button::new(&item.name)
-                                .fill(egui::Color32::TRANSPARENT)
-                                .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
-                        );
-
-                        if response.clicked() {
-                            self.pending_launch = Some(item.clone());
-                        }
-
-                        ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
-                        // 📌
-                    });
-                    shortcut_num += 1;
-                }
-                Self::separator(ui);
-            }
-
-            // === Frequent Programs ===
-            let frequent_programs: Vec<_> = self
-                .frequent_programs
-                .iter()
-                .filter(|p| !pinned_programs.iter().any(|pp| same_item(pp, p)))
-                .filter(|p| !shortcuts.iter().any(|s| same_item(s, p)))
-                .take(max_frequent_programs)
-                .cloned()
-                .collect();
-
-            if !frequent_programs.is_empty() {
-                Self::section_header(ui, "Frequent Programs");
-                for item in &frequent_programs {
-                    ui.horizontal(|ui| {
-                        if shortcut_num <= 9 {
-                            ui.label(
-                                RichText::new(format!("[{}]", shortcut_num))
-                                    .color(ThemeColors::DIM_TEXT)
-                                    .monospace(),
-                            );
-                        }
-
-                        let response = ui.add(
-                            egui::Button::new(&item.name)
-                                .fill(egui::Color32::TRANSPARENT)
-                                .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
-                        );
-
-                        if response.clicked() {
-                            self.pending_launch = Some(item.clone());
-                        }
-
-                        if ui.small_button("pin").clicked() {
-                            self.pending_pin = Some(item.clone());
-                        }
-                    });
-                    shortcut_num += 1;
-                }
-                Self::separator(ui);
-            }
-
-            // === Pinned Documents ===
-            if !pinned_documents.is_empty() {
-                Self::section_header(ui, "Pinned Documents");
-                for item in &pinned_documents {
-                    ui.horizontal(|ui| {
-                        if shortcut_num <= 9 {
-                            ui.label(
-                                RichText::new(format!("[{}]", shortcut_num))
-                                    .color(ThemeColors::DIM_TEXT)
-                                    .monospace(),
-                            );
-                        }
-
-                        let response = ui.add(
-                            egui::Button::new(&item.name)
-                                .fill(egui::Color32::TRANSPARENT)
-                                .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
-                        );
-
-                        if response.clicked() {
-                            self.pending_launch = Some(item.clone());
-                        }
-
-                        ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
-                        // 📌
-                    });
-                    shortcut_num += 1;
-                }
-                Self::separator(ui);
-            }
-
-            // === Recent Documents ===
-            let recent_docs: Vec<_> = self
-                .recent_documents
-                .iter()
-                .filter(|d| !pinned_documents.iter().any(|pd| same_item(pd, d)))
-                .take(max_frequent_documents)
-                .cloned()
-                .collect();
-
-            if !recent_docs.is_empty() {
-                Self::section_header(ui, "Recent Documents");
-                for item in &recent_docs {
-                    ui.horizontal(|ui| {
-                        if shortcut_num <= 9 {
-                            ui.label(
-                                RichText::new(format!("[{}]", shortcut_num))
-                                    .color(ThemeColors::DIM_TEXT)
-                                    .monospace(),
-                            );
-                        }
-
-                        let response = ui.add(
-                            egui::Button::new(&item.name)
-                                .fill(egui::Color32::TRANSPARENT)
-                                .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
-                        );
-
-                        if response.clicked() {
-                            self.pending_launch = Some(item.clone());
-                        }
-
-                        if ui.small_button("pin").clicked() {
-                            self.pending_pin = Some(item.clone());
-                        }
-                    });
-                    shortcut_num += 1;
-                }
-                Self::separator(ui);
-            }
-
-            // === Clipboard History with Fuzzy Search ===
-            if !self.clipboard_history.is_empty() {
-                Self::section_header(ui, "Clipboard History");
-
-                // Search box
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("\u{1F50D}").color(ThemeColors::DIM_TEXT)); // 🔍
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.clipboard_search_query)
-                            .hint_text("Search clipboard...")
-                            .desired_width(ui.available_width() - 30.0),
-                    );
-                });
-
-                ui.add_space(4.0);
-
-                // Fuzzy search results
-                let pinned_set: std::collections::HashSet<_> = pinned_clipboard.iter().collect();
-                let search_results = fuzzy_search_clipboard(
-                    &self.clipboard_search_query,
-                    &self.clipboard_history,
-                    50,
-                );
-
-                // Show non-pinned results (first 10)
-                let regular_results: Vec<_> = search_results
-                    .iter()
-                    .filter(|e| !pinned_set.contains(&e.text))
-                    .take(CLIPBOARD_DISPLAY_LIMIT)
-                    .cloned()
-                    .collect();
-
-                for entry in &regular_results {
-                    ui.horizontal(|ui| {
-                        let response = ui.add(
-                            egui::Button::new(&entry.preview)
-                                .fill(egui::Color32::TRANSPARENT)
-                                .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
-                        );
-
-                        if response.clicked() {
-                            self.pending_paste = Some(entry.text.clone());
-                        }
-
-                        // Show full text on hover for long entries
-                        if entry.text.len() > 40 {
-                            response.on_hover_text(&entry.text);
-                        }
-
-                        // Pin button
-                        if ui.small_button("pin").clicked() {
-                            self.pending_pin_clipboard = Some(entry.text.clone());
-                        }
-
-                        ui.label(RichText::new("\u{1F4CB}").color(ThemeColors::CLIPBOARD_ICON));
-                    });
-                }
-
-                // Show pinned clipboard section
-                if !pinned_clipboard.is_empty() {
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new("Pinned")
-                            .color(ThemeColors::SECTION_HEADER)
-                            .size(11.0),
-                    );
-
-                    let query = &self.clipboard_search_query;
-                    for text in &pinned_clipboard {
-                        // Filter by search query
-                        if !query.is_empty() && fuzzy_score(query, text) == 0 {
-                            continue;
-                        }
-
-                        let preview = truncate_preview(text, 50);
-
-                        ui.horizontal(|ui| {
-                            let response = ui.add(
-                                egui::Button::new(&preview)
-                                    .fill(egui::Color32::TRANSPARENT)
-                                    .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
-                            );
-
-                            if response.clicked() {
-                                self.pending_paste = Some(text.clone());
-                            }
-
-                            // Show full text on hover for long entries
-                            if text.len() > 40 {
-                                response.on_hover_text(text);
-                            }
-
-                            // Unpin button
-                            if ui.small_button("x").clicked() {
-                                self.pending_unpin_clipboard = Some(text.clone());
-                            }
-
-                            ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
-                            // 📌
-                        });
+                        Self::separator(ui);
                     }
-                }
-                Self::separator(ui);
-            }
 
-            // === Shortcuts ===
-            if !shortcuts.is_empty() {
-                Self::section_header(ui, "Shortcuts");
-                for item in &shortcuts {
-                    ui.horizontal(|ui| {
-                        if shortcut_num <= 9 {
-                            ui.label(
-                                RichText::new(format!("[{}]", shortcut_num))
-                                    .color(ThemeColors::DIM_TEXT)
-                                    .monospace(),
-                            );
+                    // === Frequent Programs ===
+                    let frequent_programs: Vec<_> = self
+                        .frequent_programs
+                        .iter()
+                        .filter(|p| !pinned_programs.iter().any(|pp| same_item(pp, p)))
+                        .filter(|p| !shortcuts.iter().any(|s| same_item(s, p)))
+                        .take(max_frequent_programs)
+                        .cloned()
+                        .collect();
+
+                    if !frequent_programs.is_empty() {
+                        Self::section_header(ui, "Frequent Programs");
+                        for item in &frequent_programs {
+                            ui.horizontal(|ui| {
+                                if shortcut_num <= 9 {
+                                    ui.label(
+                                        RichText::new(format!("[{}]", shortcut_num))
+                                            .color(ThemeColors::DIM_TEXT)
+                                            .monospace(),
+                                    );
+                                }
+
+                                let response = ui.add(
+                                    egui::Button::new(&item.name)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.pending_launch = Some(item.clone());
+                                }
+
+                                if ui.small_button("pin").clicked() {
+                                    self.pending_pin = Some(item.clone());
+                                }
+                            });
+                            shortcut_num += 1;
                         }
+                        Self::separator(ui);
+                    }
 
-                        let response = ui.add(
-                            egui::Button::new(&item.name)
-                                .fill(egui::Color32::TRANSPARENT)
-                                .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
+                    // === Pinned Documents ===
+                    if !pinned_documents.is_empty() {
+                        Self::section_header(ui, "Pinned Documents");
+                        for item in &pinned_documents {
+                            ui.horizontal(|ui| {
+                                if shortcut_num <= 9 {
+                                    ui.label(
+                                        RichText::new(format!("[{}]", shortcut_num))
+                                            .color(ThemeColors::DIM_TEXT)
+                                            .monospace(),
+                                    );
+                                }
+
+                                let response = ui.add(
+                                    egui::Button::new(&item.name)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.pending_launch = Some(item.clone());
+                                }
+
+                                ui.label(RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON));
+                                // 📌
+                            });
+                            shortcut_num += 1;
+                        }
+                        Self::separator(ui);
+                    }
+
+                    // === Recent Documents ===
+                    let recent_docs: Vec<_> = self
+                        .recent_documents
+                        .iter()
+                        .filter(|d| !pinned_documents.iter().any(|pd| same_item(pd, d)))
+                        .take(max_frequent_documents)
+                        .cloned()
+                        .collect();
+
+                    if !recent_docs.is_empty() {
+                        Self::section_header(ui, "Recent Documents");
+                        for item in &recent_docs {
+                            ui.horizontal(|ui| {
+                                if shortcut_num <= 9 {
+                                    ui.label(
+                                        RichText::new(format!("[{}]", shortcut_num))
+                                            .color(ThemeColors::DIM_TEXT)
+                                            .monospace(),
+                                    );
+                                }
+
+                                let response = ui.add(
+                                    egui::Button::new(&item.name)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.pending_launch = Some(item.clone());
+                                }
+
+                                if ui.small_button("pin").clicked() {
+                                    self.pending_pin = Some(item.clone());
+                                }
+                            });
+                            shortcut_num += 1;
+                        }
+                        Self::separator(ui);
+                    }
+
+                    // === Shortcuts ===
+                    if !shortcuts.is_empty() {
+                        Self::section_header(ui, "Shortcuts");
+                        for item in &shortcuts {
+                            ui.horizontal(|ui| {
+                                if shortcut_num <= 9 {
+                                    ui.label(
+                                        RichText::new(format!("[{}]", shortcut_num))
+                                            .color(ThemeColors::DIM_TEXT)
+                                            .monospace(),
+                                    );
+                                }
+
+                                let response = ui.add(
+                                    egui::Button::new(&item.name)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 40.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.pending_launch = Some(item.clone());
+                                }
+
+                                ui.label(
+                                    RichText::new("\u{26A1}").color(ThemeColors::SHORTCUT_ICON),
+                                );
+                                // ⚡
+                            });
+                            shortcut_num += 1;
+                        }
+                        Self::separator(ui);
+                    }
+
+                    // === Clipboard History with Fuzzy Search ===
+                    if !self.clipboard_history.is_empty() {
+                        Self::section_header(ui, "Clipboard History");
+
+                        // Search box
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("\u{1F50D}").color(ThemeColors::DIM_TEXT)); // 🔍
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.clipboard_search_query)
+                                    .hint_text("Search clipboard...")
+                                    .desired_width(ui.available_width() - 30.0),
+                            );
+                        });
+
+                        ui.add_space(4.0);
+
+                        // Fuzzy search results
+                        let pinned_set: std::collections::HashSet<_> =
+                            pinned_clipboard.iter().collect();
+                        let search_results = fuzzy_search_clipboard(
+                            &self.clipboard_search_query,
+                            &self.clipboard_history,
+                            50,
                         );
 
-                        if response.clicked() {
-                            self.pending_launch = Some(item.clone());
+                        // Show non-pinned results (first 10)
+                        let regular_results: Vec<_> = search_results
+                            .iter()
+                            .filter(|e| !pinned_set.contains(&e.text))
+                            .take(CLIPBOARD_DISPLAY_LIMIT)
+                            .cloned()
+                            .collect();
+
+                        for entry in &regular_results {
+                            ui.horizontal(|ui| {
+                                let response = ui.add(
+                                    egui::Button::new(&entry.preview)
+                                        .fill(egui::Color32::TRANSPARENT)
+                                        .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                                );
+
+                                if response.clicked() {
+                                    self.pending_paste = Some(entry.text.clone());
+                                }
+
+                                // Show full text on hover for long entries
+                                if entry.text.len() > 40 {
+                                    response.on_hover_text(&entry.text);
+                                }
+
+                                // Pin button
+                                if ui.small_button("pin").clicked() {
+                                    self.pending_pin_clipboard = Some(entry.text.clone());
+                                }
+
+                                ui.label(
+                                    RichText::new("\u{1F4CB}").color(ThemeColors::CLIPBOARD_ICON),
+                                );
+                            });
                         }
 
-                        ui.label(RichText::new("\u{26A1}").color(ThemeColors::SHORTCUT_ICON));
-                        // ⚡
-                    });
-                    shortcut_num += 1;
-                }
-                Self::separator(ui);
-            }
+                        // Show pinned clipboard section
+                        if !pinned_clipboard.is_empty() {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new("Pinned")
+                                    .color(ThemeColors::SECTION_HEADER)
+                                    .size(11.0),
+                            );
 
-            // === Add Shortcut Button ===
-            ui.add_space(4.0);
-            if ui
-                .add(egui::Button::new("[+ Add Shortcut]").fill(egui::Color32::TRANSPARENT))
-                .clicked()
+                            let query = &self.clipboard_search_query;
+                            for text in &pinned_clipboard {
+                                // Filter by search query
+                                if !query.is_empty() && fuzzy_score(query, text) == 0 {
+                                    continue;
+                                }
+
+                                let preview = truncate_preview(text, 50);
+
+                                ui.horizontal(|ui| {
+                                    let response = ui.add(
+                                        egui::Button::new(&preview)
+                                            .fill(egui::Color32::TRANSPARENT)
+                                            .min_size(Vec2::new(ui.available_width() - 60.0, 24.0)),
+                                    );
+
+                                    if response.clicked() {
+                                        self.pending_paste = Some(text.clone());
+                                    }
+
+                                    // Show full text on hover for long entries
+                                    if text.len() > 40 {
+                                        response.on_hover_text(text);
+                                    }
+
+                                    // Unpin button
+                                    if ui.small_button("x").clicked() {
+                                        self.pending_unpin_clipboard = Some(text.clone());
+                                    }
+
+                                    ui.label(
+                                        RichText::new("\u{1F4CC}").color(ThemeColors::PIN_ICON),
+                                    );
+                                    // 📌
+                                });
+                            }
+                        }
+                        Self::separator(ui);
+                    }
+
+                    // === Add Shortcut Button ===
+                    ui.add_space(4.0);
+                    if ui
+                        .add(egui::Button::new("[+ Add Shortcut]").fill(egui::Color32::TRANSPARENT))
+                        .clicked()
+                    {
+                        self.show_add_dialog = true;
+                    }
+                }); // end ScrollArea
+
+            // Adaptive height from scroll content_size (unbounded content height)
+            let content_h = scroll_output.content_size.y;
+            let chrome = 16.0;
+            let monitor_h = ctx
+                .input(|i| i.viewport().monitor_size.map(|s| s.y))
+                .unwrap_or(1080.0);
+            let max_h = (monitor_h - 50.0).max(60.0);
+            let desired = (content_h + chrome).clamp(60.0, max_h);
+            if content_h > 10.0
+                && (desired - self.last_height).abs() > 2.0
+                && self.frame_count.saturating_sub(self.last_resize_frame) > 5
             {
-                self.show_add_dialog = true;
-            }
-
-            // Adaptive height: cursor.y = bottom of last widget, max_rect.top = panel top
-            let content_h = ui.cursor().min.y - ui.max_rect().min.y;
-            let chrome_padding = 16.0;
-            let max_height = 800.0_f32;
-            let desired = (content_h + chrome_padding).min(max_height).max(60.0);
-            if content_h > 10.0 && (desired - self.last_height).abs() > 2.0 {
                 self.last_height = desired;
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(
-                    self.width, desired,
-                )));
+                self.last_resize_frame = self.frame_count;
+                resize_to = Some(desired);
             }
         });
+
+        // Apply resize OUTSIDE the panel closure to prevent re-render loop
+        if let Some(h) = resize_to {
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(self.width, h)));
+        }
 
         // Show add dialog if requested
         if self.show_add_dialog {
             self.add_shortcut_dialog(ctx);
         }
 
-        // Click outside detection (simplified - close on focus loss)
-        // Skip first 10 frames to allow window to gain focus after mouse click
+        // Click outside detection — close on focus loss, but only after we've been focused once
         self.frame_count += 1;
-        if self.frame_count > 10 && !ctx.input(|i| i.focused) {
+        if ctx.input(|i| i.focused) {
+            self.has_been_focused = true;
+        }
+        if self.has_been_focused && !ctx.input(|i| i.focused) {
             self.should_close = true;
         }
     }
