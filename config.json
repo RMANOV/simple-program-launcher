@@ -12,7 +12,6 @@
     {"name": "Disk Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\disk_cleanup.bat", "icon": "🗑"},
     {"name": "Boost PC", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\run_optimizer.bat", "icon": "🚀"},
     {"name": "CLI High Boost", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\cli_high_boost.bat", "icon": "⚡"},
-    {"name": "Task Board", "path": "C:\\Users\\rmanov\\.claude\\memory\\bridge\\index.html", "icon": "📋"},
     {"name": "Task Tray", "path": "pythonw C:\\Users\\rmanov\\.claude\\mcp_servers\\sqlite_memory\\task_tray.py", "icon": "✓"},
     {"name": "─────────────", "path": "", "icon": " ", "separator": true},
     {"name": "Word", "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE", "icon": "📄"},
@@ -20,6 +19,12 @@
     {"name": "Notepad", "path": "notepad.exe", "icon": "📄"},
     {"name": "Explorer", "path": "explorer.exe", "icon": "📁"},
     {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
-    {"name": "CMD", "path": "C:\\Windows\\System32\\cmd.exe", "icon": "⌨"}
+    {"name": "CMD", "path": "C:\\Windows\\System32\\cmd.exe", "icon": "⌨"},
+    {"name": "─────────────", "path": "", "icon": " ", "separator": true},
+    {"name": "WT Quad (4)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_quad.cmd", "icon": "▰"},
+    {"name": "WT Trio (3)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_trio.cmd", "icon": "▰"},
+    {"name": "WT Duo (2)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_duo.cmd", "icon": "▰"},
+    {"name": "WT Dashboard", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_dashboard.cmd", "icon": "▰"},
+    {"name": "WT Grid (6)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_grid6.cmd", "icon": "▰"}
   ]
 }
