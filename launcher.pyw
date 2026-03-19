@@ -781,14 +781,29 @@ class EvdevMouseListener:
         print(f"  Monitoring {len(devices)} device(s)")
 
         while not self._stop:
-            r, _, _ = _select.select(devices, [], [], 0.1)
+            try:
+                r, _, _ = _select.select(devices, [], [], 0.1)
+            except (OSError, ValueError):
+                # Device fd became invalid (suspend/resume, USB reconnect)
+                print("  Device lost, re-enumerating...")
+                time.sleep(1)
+                devices = self._find_mouse_devices()
+                if not devices:
+                    print("  No devices found, retrying in 5s...")
+                    time.sleep(5)
+                    devices = self._find_mouse_devices()
+                continue
+
             for dev in r:
                 try:
                     for event in dev.read():
                         if event.type == evdev.ecodes.EV_KEY:
                             self._handle_button(event.code, event.value == 1)
-                except Exception:
-                    pass
+                except OSError:
+                    # Single device failed, re-enumerate all
+                    print(f"  Device read error, re-enumerating...")
+                    devices = self._find_mouse_devices()
+                    break
 
     def _handle_button(self, code: int, pressed: bool):
         now = time.time()
@@ -854,6 +869,13 @@ class LauncherPopup:
         self.shortcut_num = 1
         self._numbered_items: List[LaunchItem] = []
         self.clipboard_search_var: Optional[tk.StringVar] = None
+        # Stored in Wayland/KWin coordinate space for evdev hit-testing
+        self._popup_x = 0
+        self._popup_y = 0
+        self._popup_w = 0
+        self._popup_h = 0
+        self._scale_x = 1.0  # KWin-to-X11 scale factor
+        self._scale_y = 1.0
         self.clipboard_frame: Optional[tk.Frame] = None
 
     def show(self):
@@ -913,6 +935,20 @@ class LauncherPopup:
             y = max(0, screen_height - height - 40)
         self.root.geometry(f"{self.config.ui_width}x{height}+{int(x)}+{int(y)}")
 
+        # Store bounds in Wayland/KWin coordinate space for evdev hit-testing
+        self._popup_x = int(x)
+        self._popup_y = int(y)
+        self._popup_w = self.config.ui_width
+        self._popup_h = height
+
+        # Compute KWin-to-X11 scale factor (for widget hit-testing on fractional-scaled displays)
+        self.root.update_idletasks()
+        x11_x = self.root.winfo_rootx()
+        x11_y = self.root.winfo_rooty()
+        if self._popup_x > 0 and self._popup_y > 0:
+            self._scale_x = x11_x / self._popup_x
+            self._scale_y = x11_y / self._popup_y
+
         # Bindings
         self.root.bind('<Escape>', lambda e: self.close())
         self.root.bind_all('<Button-1>', self._on_tkinter_click)
@@ -924,6 +960,8 @@ class LauncherPopup:
 
         # Keep on top
         self.root.attributes('-topmost', True)
+        self.root.lift()
+        self.root.focus_force()
 
         # Click-outside polling
         self._shown_time = time.time()
@@ -1276,12 +1314,25 @@ class LauncherPopup:
         """Record timestamp of clicks on the popup window."""
         self._tkinter_click_time = time.time()
 
+    def _process_evdev_click(self, screen_x, screen_y):
+        """Handle click detected by evdev — convert KWin coords to X11 and find widget."""
+        if not self.root:
+            return
+        try:
+            # Convert KWin/Wayland coordinates to X11/XWayland coordinates
+            x11_x = int(screen_x * self._scale_x)
+            x11_y = int(screen_y * self._scale_y)
+            widget = self.root.winfo_containing(x11_x, x11_y)
+            if widget and isinstance(widget, tk.Button):
+                widget.invoke()
+        except Exception:
+            pass
+
     def _check_click_outside(self):
         """Close popup when a click happens outside it.
 
-        Uses timestamp correlation: evdev sees ALL clicks globally, tkinter
-        only sees clicks ON the popup. If evdev has a fresh click but tkinter
-        didn't fire within 200ms, the click was outside -> close.
+        Uses cursor position: evdev sees ALL clicks globally. When a new click
+        is detected, check if cursor is within the popup bounds. If outside, close.
         """
         if not self.root:
             return
@@ -1293,15 +1344,25 @@ class LauncherPopup:
         if not self._mouse_listener:
             self.root.after(200, self._check_click_outside)
             return
-        press_time, _ = self._mouse_listener.last_press
+        press_time, press_pos = self._mouse_listener.last_press
         if press_time <= self._shown_time + 0.5 or press_time <= self._last_checked_press:
             if self.root:
                 self.root.after(80, self._check_click_outside)
             return
         self._last_checked_press = press_time
-        # Timestamp correlation: tkinter click within 200ms of evdev click?
-        if abs(self._tkinter_click_time - press_time) < 0.2:
-            # Click was inside the popup
+        # Geometry check: is cursor inside popup bounds?
+        # Use stored KWin/Wayland coordinates (not tkinter's X11 coordinates)
+        try:
+            cx, cy = self._mouse_listener._get_cursor_position()
+            inside = (self._popup_x <= cx <= self._popup_x + self._popup_w and
+                      self._popup_y <= cy <= self._popup_y + self._popup_h)
+            if inside:
+                # Click inside popup — invoke widget via evdev hit-testing
+                self._process_evdev_click(cx, cy)
+                if self.root:
+                    self.root.after(80, self._check_click_outside)
+                return
+        except Exception:
             if self.root:
                 self.root.after(80, self._check_click_outside)
             return
@@ -1354,11 +1415,14 @@ class Launcher:
     def _handle_trigger(self, position: tuple):
         """Handle trigger on main thread — safe for tkinter."""
         print(f"Trigger at {position}")
-        if self.popup and self.popup.root:
-            self.popup.close()
-        self.popup = LauncherPopup(position, self.config, self.usage_tracker,
-                                   self.clipboard, self.input_listener, self._root)
-        self.popup.show()
+        try:
+            if self.popup and self.popup.root:
+                self.popup.close()
+            self.popup = LauncherPopup(position, self.config, self.usage_tracker,
+                                       self.clipboard, self.input_listener, self._root)
+            self.popup.show()
+        except Exception as e:
+            print(f"ERROR showing popup: {e}")
 
     def run(self):
         """Start the launcher"""
@@ -1387,7 +1451,7 @@ if __name__ == "__main__":
     # Daemonize: redirect output to log when not on a terminal
     if not sys.stdout.isatty():
         _log = os.path.expanduser("~/.cache/launcher.log")
-        _f = open(_log, "a")
+        _f = open(_log, "a", buffering=1)  # line-buffered for debug
         sys.stdout = sys.stderr = _f
 
     launcher = Launcher()
