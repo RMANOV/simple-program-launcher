@@ -863,7 +863,6 @@ class LauncherPopup:
         self._master = master
         self._shown_time = 0.0
         self._last_checked_press = 0.0
-        self._tkinter_click_time = 0.0
 
         self.root: Optional[tk.Toplevel] = None
         self.shortcut_num = 1
@@ -951,8 +950,6 @@ class LauncherPopup:
 
         # Bindings
         self.root.bind('<Escape>', lambda e: self.close())
-        self.root.bind_all('<Button-1>', self._on_tkinter_click)
-        self.root.bind_all('<Button-3>', self._on_tkinter_click)
 
         # Number key bindings
         for i in range(1, 10):
@@ -960,7 +957,6 @@ class LauncherPopup:
 
         # Keep on top
         self.root.attributes('-topmost', True)
-        self.root.lift()
         self.root.focus_force()
 
         # Click-outside polling
@@ -1310,10 +1306,6 @@ class LauncherPopup:
         self.config.shortcuts.append(item)
         self.config.save()
 
-    def _on_tkinter_click(self, event):
-        """Record timestamp of clicks on the popup window."""
-        self._tkinter_click_time = time.time()
-
     def _process_evdev_click(self, screen_x, screen_y):
         """Handle click detected by evdev — convert KWin coords to X11 and find widget."""
         if not self.root:
@@ -1344,7 +1336,7 @@ class LauncherPopup:
         if not self._mouse_listener:
             self.root.after(200, self._check_click_outside)
             return
-        press_time, press_pos = self._mouse_listener.last_press
+        press_time, _ = self._mouse_listener.last_press
         if press_time <= self._shown_time + 0.5 or press_time <= self._last_checked_press:
             if self.root:
                 self.root.after(80, self._check_click_outside)
