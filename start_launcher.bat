@@ -17,8 +17,9 @@ if not exist "%EXE_PATH%" (
 )
 
 :run
-:: Kill existing instance
+:: Kill existing instance and wait for mutex release
 taskkill /F /IM "%EXE_NAME%" >nul 2>&1
+timeout /t 1 /nobreak >nul
 
 :: Start with unique process name
 start "" "%EXE_PATH%" "%SCRIPT_DIR%launcher.pyw"

@@ -20,6 +20,7 @@ End If
 
 ' Kill existing MouseLauncher only
 WshShell.Run "taskkill /F /IM " & exeName, 0, True
+WScript.Sleep 500
 
 ' Start launcher
 WshShell.Run """" & exePath & """ """ & scriptDir & "launcher.pyw""", 0, False

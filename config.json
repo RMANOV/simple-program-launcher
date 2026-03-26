@@ -9,6 +9,7 @@
     {"name": "Backup After", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_after_changes.bat", "icon": "✅"},
     {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"},
     {"name": "Backup Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_cleanup.bat", "icon": "🧹"},
+    {"name": "Audit Backup", "path": "F:\\IT Разработки\\Antropic_Claude_tests\\backup_mirror.bat", "icon": "🔄"},
     {"name": "Disk Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\disk_cleanup.bat", "icon": "🗑"},
     {"name": "Boost PC", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\run_optimizer.bat", "icon": "🚀"},
     {"name": "CLI High Boost", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\cli_high_boost.bat", "icon": "⚡"},
