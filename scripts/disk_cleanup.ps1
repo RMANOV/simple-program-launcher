@@ -125,6 +125,24 @@ if (Test-Path $ClaudeProjects) {
     Add-Content $LogFile "Claude projects folder not found"
 }
 
+# 3b. Clean Claude Code debug logs (>7 days old, can grow to ~1GB)
+$ClaudeDebugDir = "$env:USERPROFILE\.claude\debug"
+$ClaudeDebugFreed = 0
+if (Test-Path $ClaudeDebugDir) {
+    $OldDebugFiles = Get-ChildItem $ClaudeDebugDir -Recurse -Force -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+    if ($OldDebugFiles) {
+        $ClaudeDebugFreed = [math]::Round(($OldDebugFiles | Measure-Object Length -Sum).Sum / 1MB, 0)
+        $OldDebugFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+        $TotalFreedMB += $ClaudeDebugFreed
+        Add-Content $LogFile "Cleaned Claude debug logs: $ClaudeDebugFreed MB freed ($($OldDebugFiles.Count) files)"
+        Write-Host "  Claude debug:  $($OldDebugFiles.Count) old files, $ClaudeDebugFreed MB freed" -ForegroundColor Cyan
+    } else {
+        Add-Content $LogFile "No old Claude debug logs to clean"
+        Write-Host "  Claude debug:  clean" -ForegroundColor DarkGray
+    }
+}
+
 # 4. Delete .node files from Temp (V8 compile cache)
 $NodeFiles = Get-ChildItem "$env:TEMP\*.node" -Hidden -ErrorAction SilentlyContinue
 $NodeCount = $NodeFiles.Count
@@ -180,6 +198,24 @@ foreach ($root in $BrowserRoots) {
 $TotalFreedMB += $BrowserFreed
 Add-Content $LogFile "Cleaned browser caches: $BrowserFreed MB freed"
 Write-Host "  Browser caches: $BrowserFreed MB freed" -ForegroundColor Cyan
+
+# 7b. Chrome OptGuide on-device ML model (2-3GB, auto-redownloads on demand)
+$OptGuideFreed = 0
+$OptGuidePath = "$env:LOCALAPPDATA\Google\Chrome\User Data\OptGuideOnDeviceModel"
+if (Test-Path $OptGuidePath) {
+    $sz = (Get-ChildItem $OptGuidePath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    if ($sz -gt 500MB) {
+        $OptGuideFreed = [math]::Round($sz / 1MB, 0)
+        Remove-Item $OptGuidePath -Recurse -Force -EA SilentlyContinue
+        $TotalFreedMB += $OptGuideFreed
+        Add-Content $LogFile "Cleaned Chrome OptGuide ML model: $OptGuideFreed MB freed"
+        Write-Host "  Chrome OptGuide: $OptGuideFreed MB freed" -ForegroundColor Cyan
+    } else {
+        Write-Host "  Chrome OptGuide: small ($([math]::Round($sz/1MB))MB), skipped" -ForegroundColor DarkGray
+    }
+} else {
+    Write-Host "  Chrome OptGuide: clean" -ForegroundColor DarkGray
+}
 
 # 8. VS Code Caches
 $VSCodeFreed = 0
@@ -540,8 +576,10 @@ Write-Host "=== Disk Cleanup Complete ===" -ForegroundColor Green
 Write-Host "  uv cache:       $UvFreed MB" -ForegroundColor Cyan
 Write-Host "  Temp files:     $TempFreedMB MB" -ForegroundColor Cyan
 Write-Host "  Claude JSONL:   $ClaudeFreed MB" -ForegroundColor Cyan
+Write-Host "  Claude debug:   $ClaudeDebugFreed MB" -ForegroundColor Cyan
 Write-Host "  .node files:    $NodeSizeMB MB ($NodeCount files)" -ForegroundColor Cyan
 Write-Host "  Browser caches: $BrowserFreed MB" -ForegroundColor Cyan
+Write-Host "  Chrome OptGuide: $OptGuideFreed MB" -ForegroundColor Cyan
 Write-Host "  VS Code caches: $VSCodeFreed MB" -ForegroundColor Cyan
 Write-Host "  OneDrive logs:  $ODFreed MB" -ForegroundColor Cyan
 Write-Host "  Teams cache:    $TeamsFreed MB" -ForegroundColor Cyan
