@@ -7,6 +7,10 @@ $LogFile = "$env:TEMP\disk_cleanup.log"
 $Date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $TotalFreedMB = 0
 
+# --- Opt-in flags for heavy cleanup ---
+$CleanCoworkVM = $false    # Set $true to delete Cowork VM (12G, needs re-download on next use)
+$CleanMLModels = $false    # Set $true to delete Whisper/HuggingFace models (3.5G, re-downloadable)
+
 Add-Content $LogFile "`n=== Cleanup started: $Date ==="
 $FreeSpaceBefore = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
 Add-Content $LogFile "C: Free before: $FreeSpaceBefore GB"
@@ -349,16 +353,74 @@ if ($VSCodeChatFiles -and $VSCodeChatFiles.Count -gt 0) {
 Add-Content $LogFile "Cleaned VS Code chat/session payloads: $VSCodeChatFreed MB freed"
 Write-Host "  VS Code chat:  $VSCodeChatFreed MB freed" -ForegroundColor Cyan
 
-# 16. Claude desktop cache cleanup (safe mode: skip if Claude is running)
+# 16. Claude Desktop full cleanup (cache, old versions, logs, sessions, VM)
 $ClaudeCacheFreed = 0
+$ClaudeOldVerFreed = 0
+$ClaudeLogsFreed = 0
+$ClaudeSessionsFreed = 0
+$ClaudeVMFreed = 0
 $ClaudeIsRunning = $false
+$ClaudeRoot = "$env:APPDATA\Claude"
+
 if (Get-Process claude -EA SilentlyContinue) {
     $ClaudeIsRunning = $true
 }
+
+# 16a. Old claude-code versions (keep only latest)
+$ccDir = "$ClaudeRoot\claude-code"
+if (Test-Path $ccDir) {
+    $versions = Get-ChildItem $ccDir -Directory -EA SilentlyContinue | Sort-Object Name -Descending
+    if ($versions.Count -gt 1) {
+        $oldVersions = $versions | Select-Object -Skip 1
+        foreach ($old in $oldVersions) {
+            $sz = (Get-ChildItem $old.FullName -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+            Remove-Item $old.FullName -Recurse -Force -EA SilentlyContinue
+            $ClaudeOldVerFreed += [int][math]::Round($sz / 1MB, 0)
+        }
+    }
+}
+if ($ClaudeOldVerFreed -lt 0) { $ClaudeOldVerFreed = 0 }
+$TotalFreedMB += $ClaudeOldVerFreed
+Add-Content $LogFile "Cleaned old claude-code versions: $ClaudeOldVerFreed MB freed"
+Write-Host "  Claude old ver: $ClaudeOldVerFreed MB freed" -ForegroundColor Cyan
+
+# 16b. Claude Desktop logs (>7 days)
+$claudeLogsDir = "$ClaudeRoot\logs"
+if (Test-Path $claudeLogsDir) {
+    $oldLogs = Get-ChildItem $claudeLogsDir -Recurse -Force -File -EA SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+    if ($oldLogs) {
+        $sz = ($oldLogs | Measure-Object Length -Sum).Sum
+        $oldLogs | Remove-Item -Force -EA SilentlyContinue
+        $ClaudeLogsFreed = [int][math]::Round($sz / 1MB, 0)
+    }
+}
+if ($ClaudeLogsFreed -lt 0) { $ClaudeLogsFreed = 0 }
+$TotalFreedMB += $ClaudeLogsFreed
+Add-Content $LogFile "Cleaned Claude logs: $ClaudeLogsFreed MB freed"
+Write-Host "  Claude logs:   $ClaudeLogsFreed MB freed" -ForegroundColor Cyan
+
+# 16c. Local agent mode sessions (>7 days)
+$agentSessions = "$ClaudeRoot\local-agent-mode-sessions"
+if (Test-Path $agentSessions) {
+    $oldSess = Get-ChildItem $agentSessions -Recurse -Force -File -EA SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+    if ($oldSess) {
+        $sz = ($oldSess | Measure-Object Length -Sum).Sum
+        $oldSess | Remove-Item -Force -EA SilentlyContinue
+        $ClaudeSessionsFreed = [int][math]::Round($sz / 1MB, 0)
+    }
+}
+if ($ClaudeSessionsFreed -lt 0) { $ClaudeSessionsFreed = 0 }
+$TotalFreedMB += $ClaudeSessionsFreed
+Add-Content $LogFile "Cleaned Claude agent sessions: $ClaudeSessionsFreed MB freed"
+Write-Host "  Claude sessions: $ClaudeSessionsFreed MB freed" -ForegroundColor Cyan
+
+# 16d. Cache/Code Cache (existing behavior, requires Claude not running)
 if (-not $ClaudeIsRunning) {
     $ClaudeCacheRoots = @(
-        "$env:APPDATA\Claude\Cache\Cache_Data",
-        "$env:APPDATA\Claude\Code Cache\js"
+        "$ClaudeRoot\Cache\Cache_Data",
+        "$ClaudeRoot\Code Cache\js"
     )
     foreach ($root in $ClaudeCacheRoots) {
         if (Test-Path $root) {
@@ -371,16 +433,39 @@ if (-not $ClaudeIsRunning) {
             }
         }
     }
+    # 16e. sessiondata.vhdx — Cowork session state (recreated automatically)
+    $sessionVhdx = "$ClaudeRoot\vm_bundles\claudevm.bundle\sessiondata.vhdx"
+    if (Test-Path $sessionVhdx) {
+        $sz = (Get-Item $sessionVhdx -EA SilentlyContinue).Length
+        Remove-Item $sessionVhdx -Force -EA SilentlyContinue
+        $ClaudeCacheFreed += [int][math]::Round($sz / 1MB, 0)
+    }
 } else {
-    Add-Content $LogFile "Claude cache cleanup skipped (claude.exe is running)"
+    Add-Content $LogFile "Claude cache/VM cleanup skipped (claude.exe is running)"
 }
 if ($ClaudeCacheFreed -lt 0) { $ClaudeCacheFreed = 0 }
 $TotalFreedMB += $ClaudeCacheFreed
-Add-Content $LogFile "Cleaned Claude app cache: $ClaudeCacheFreed MB freed"
+Add-Content $LogFile "Cleaned Claude cache + sessiondata: $ClaudeCacheFreed MB freed"
 if ($ClaudeIsRunning) {
-    Write-Host "  Claude cache:  skipped (Claude running)" -ForegroundColor DarkGray
+    Write-Host "  Claude cache:  skipped (running)" -ForegroundColor DarkGray
 } else {
     Write-Host "  Claude cache:  $ClaudeCacheFreed MB freed" -ForegroundColor Cyan
+}
+
+# 16f. Cowork VM full purge (opt-in, 12G+ — needs re-download on next use)
+if ($CleanCoworkVM -and -not $ClaudeIsRunning) {
+    $vmBundles = "$ClaudeRoot\vm_bundles"
+    if (Test-Path $vmBundles) {
+        $sz = (Get-ChildItem $vmBundles -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        Remove-Item "$vmBundles\*" -Recurse -Force -EA SilentlyContinue
+        $ClaudeVMFreed = [int][math]::Round($sz / 1MB, 0)
+    }
+    if ($ClaudeVMFreed -lt 0) { $ClaudeVMFreed = 0 }
+    $TotalFreedMB += $ClaudeVMFreed
+    Add-Content $LogFile "Purged Cowork VM bundles: $ClaudeVMFreed MB freed"
+    Write-Host "  Cowork VM:    $ClaudeVMFreed MB freed" -ForegroundColor Yellow
+} elseif ($CleanCoworkVM -and $ClaudeIsRunning) {
+    Write-Host "  Cowork VM:    skipped (running)" -ForegroundColor DarkGray
 }
 
 # 17. WinGet package payload cleanup (old installer remnants)
@@ -405,6 +490,43 @@ if (Test-Path $WinGetRoot) {
 Add-Content $LogFile "Cleaned WinGet package payloads: $WinGetFreed MB freed"
 Write-Host "  WinGet cache:  $WinGetFreed MB freed" -ForegroundColor Cyan
 
+# 18. ML Model Caches (opt-in — large re-downloads)
+$MLFreed = 0
+if ($CleanMLModels) {
+    $MLCachePaths = @(
+        "$env:USERPROFILE\.cache\whisper",
+        "$env:USERPROFILE\.cache\huggingface"
+    )
+    foreach ($mlpath in $MLCachePaths) {
+        if (Test-Path $mlpath) {
+            $sz = (Get-ChildItem $mlpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+            Remove-Item "$mlpath\*" -Recurse -Force -EA SilentlyContinue
+            $MLFreed += [int][math]::Round($sz / 1MB, 0)
+        }
+    }
+    if ($MLFreed -lt 0) { $MLFreed = 0 }
+    $TotalFreedMB += $MLFreed
+    Add-Content $LogFile "Cleaned ML model caches (whisper+huggingface): $MLFreed MB freed"
+    Write-Host "  ML models:    $MLFreed MB freed" -ForegroundColor Yellow
+}
+
+# 19. New Outlook (Olk) logs (>7 days)
+$OlkFreed = 0
+$OlkLogsPath = "$env:LOCALAPPDATA\Microsoft\Olk\logs"
+if (Test-Path $OlkLogsPath) {
+    $oldOlkLogs = Get-ChildItem $OlkLogsPath -Recurse -Force -File -EA SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) }
+    if ($oldOlkLogs) {
+        $sz = ($oldOlkLogs | Measure-Object Length -Sum).Sum
+        $oldOlkLogs | Remove-Item -Force -EA SilentlyContinue
+        $OlkFreed = [int][math]::Round($sz / 1MB, 0)
+    }
+}
+if ($OlkFreed -lt 0) { $OlkFreed = 0 }
+$TotalFreedMB += $OlkFreed
+Add-Content $LogFile "Cleaned Olk (new Outlook) logs: $OlkFreed MB freed"
+Write-Host "  Outlook logs:  $OlkFreed MB freed" -ForegroundColor Cyan
+
 # Summary
 $FreeSpaceAfter = [math]::Round((Get-PSDrive C).Free / 1GB, 2)
 $NetFreedGB = [math]::Round($FreeSpaceAfter - $FreeSpaceBefore, 2)
@@ -417,7 +539,7 @@ Write-Host ""
 Write-Host "=== Disk Cleanup Complete ===" -ForegroundColor Green
 Write-Host "  uv cache:       $UvFreed MB" -ForegroundColor Cyan
 Write-Host "  Temp files:     $TempFreedMB MB" -ForegroundColor Cyan
-Write-Host "  Claude:         $ClaudeFreed MB" -ForegroundColor Cyan
+Write-Host "  Claude JSONL:   $ClaudeFreed MB" -ForegroundColor Cyan
 Write-Host "  .node files:    $NodeSizeMB MB ($NodeCount files)" -ForegroundColor Cyan
 Write-Host "  Browser caches: $BrowserFreed MB" -ForegroundColor Cyan
 Write-Host "  VS Code caches: $VSCodeFreed MB" -ForegroundColor Cyan
@@ -427,8 +549,18 @@ Write-Host "  Snipping Tool:  $SnipFreed MB" -ForegroundColor Cyan
 Write-Host "  Screenshots:    $ScreensFreed MB" -ForegroundColor Cyan
 Write-Host "  Recycle Bin:    $RecycleFreed MB" -ForegroundColor Cyan
 Write-Host "  VS Code chat:   $VSCodeChatFreed MB" -ForegroundColor Cyan
+Write-Host "  Claude old ver: $ClaudeOldVerFreed MB" -ForegroundColor Cyan
+Write-Host "  Claude logs:    $ClaudeLogsFreed MB" -ForegroundColor Cyan
+Write-Host "  Claude sessions:$ClaudeSessionsFreed MB" -ForegroundColor Cyan
 Write-Host "  Claude cache:   $ClaudeCacheFreed MB" -ForegroundColor Cyan
+if ($CleanCoworkVM) {
+    Write-Host "  Cowork VM:     $ClaudeVMFreed MB" -ForegroundColor Yellow
+}
 Write-Host "  WinGet cache:   $WinGetFreed MB" -ForegroundColor Cyan
+if ($CleanMLModels) {
+    Write-Host "  ML models:     $MLFreed MB" -ForegroundColor Yellow
+}
+Write-Host "  Outlook logs:   $OlkFreed MB" -ForegroundColor Cyan
 Write-Host "  pip/npm cache:  purged" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  TOTAL FREED:  $([math]::Round($TotalFreedMB/1024,2)) GB" -ForegroundColor Yellow
