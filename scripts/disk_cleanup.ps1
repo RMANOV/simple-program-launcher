@@ -1,7 +1,7 @@
 # Disk Cleanup Script
 # Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp, OneDrive Screenshots, Recycle Bin
-#           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache
-# Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-02-11 (browser/teams coverage, OneDrive logs fix, Screenshots path, ultra chat/cache cleanup)
+#           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache, OfficeHub EBWebView cache, Cargo cache
+# Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-03-31 (OfficeHub cache, Cargo cache, Claude VM advisory)
 
 $LogFile = "$env:TEMP\disk_cleanup.log"
 $Date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -298,6 +298,41 @@ $TotalFreedMB += $TeamsFreed
 Add-Content $LogFile "Cleaned Teams cache: $TeamsFreed MB freed"
 Write-Host "  Teams cache: $TeamsFreed MB freed" -ForegroundColor Cyan
 
+# 10b. OfficeHub EBWebView cache (Microsoft 365 app shell cache)
+$OfficeHubFreed = 0
+$OfficeHubBase = "$env:LOCALAPPDATA\Packages\Microsoft.MicrosoftOfficeHub_8wekyb3d8bbwe\LocalState\EBWebView"
+$OfficeHubPaths = @(
+    "$OfficeHubBase\Default\Cache",
+    "$OfficeHubBase\Default\Code Cache",
+    "$OfficeHubBase\Default\GPUCache",
+    "$OfficeHubBase\Default\Service Worker\CacheStorage",
+    "$OfficeHubBase\GrShaderCache",
+    "$OfficeHubBase\DawnGraphiteCache",
+    "$OfficeHubBase\DawnWebGPUCache",
+    "$OfficeHubBase\component_crx_cache"
+)
+foreach ($opath in $OfficeHubPaths) {
+    if (Test-Path $opath) {
+        $before = (Get-ChildItem $opath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        Remove-Item "$opath\*" -Recurse -Force -EA SilentlyContinue
+        $after = (Get-ChildItem $opath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $OfficeHubFreed += [math]::Round(($before - $after) / 1MB, 0)
+    }
+}
+Get-ChildItem "$OfficeHubBase\Default\WebStorage" -Directory -EA SilentlyContinue |
+    ForEach-Object {
+        $cacheStorage = Join-Path $_.FullName "CacheStorage"
+        if (Test-Path $cacheStorage) {
+            $before = (Get-ChildItem $cacheStorage -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+            Remove-Item "$cacheStorage\*" -Recurse -Force -EA SilentlyContinue
+            $after = (Get-ChildItem $cacheStorage -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+            $OfficeHubFreed += [math]::Round(($before - $after) / 1MB, 0)
+        }
+    }
+$TotalFreedMB += $OfficeHubFreed
+Add-Content $LogFile "Cleaned OfficeHub EBWebView cache: $OfficeHubFreed MB freed"
+Write-Host "  OfficeHub:     $OfficeHubFreed MB freed" -ForegroundColor Cyan
+
 # 11. Snipping Tool TempState (screenshots/recordings not cleaned on close)
 $SnipFreed = 0
 $SnipTempPath = "$env:LOCALAPPDATA\Packages\Microsoft.ScreenSketch_8wekyb3d8bbwe\TempState"
@@ -397,6 +432,11 @@ $ClaudeSessionsFreed = 0
 $ClaudeVMFreed = 0
 $ClaudeIsRunning = $false
 $ClaudeRoot = "$env:APPDATA\Claude"
+$ClaudeVmBundleSizeMB = 0
+if (Test-Path "$ClaudeRoot\vm_bundles") {
+    $vmSize = (Get-ChildItem "$ClaudeRoot\vm_bundles" -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+    $ClaudeVmBundleSizeMB = [int][math]::Round($vmSize / 1MB, 0)
+}
 
 if (Get-Process claude -EA SilentlyContinue) {
     $ClaudeIsRunning = $true
@@ -526,7 +566,27 @@ if (Test-Path $WinGetRoot) {
 Add-Content $LogFile "Cleaned WinGet package payloads: $WinGetFreed MB freed"
 Write-Host "  WinGet cache:  $WinGetFreed MB freed" -ForegroundColor Cyan
 
-# 18. ML Model Caches (opt-in — large re-downloads)
+# 18. Cargo registry cache (safe redownloadable Rust dependency cache)
+$CargoFreed = 0
+$CargoPaths = @(
+    "$env:USERPROFILE\.cargo\registry\cache",
+    "$env:USERPROFILE\.cargo\registry\src",
+    "$env:USERPROFILE\.cargo\git\db"
+)
+foreach ($cpath in $CargoPaths) {
+    if (Test-Path $cpath) {
+        $before = (Get-ChildItem $cpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        Remove-Item "$cpath\*" -Recurse -Force -EA SilentlyContinue
+        $after = (Get-ChildItem $cpath -Recurse -Force -File -EA SilentlyContinue | Measure-Object Length -Sum).Sum
+        $CargoFreed += [int][math]::Round(($before - $after) / 1MB, 0)
+    }
+}
+if ($CargoFreed -lt 0) { $CargoFreed = 0 }
+$TotalFreedMB += $CargoFreed
+Add-Content $LogFile "Cleaned Cargo cache: $CargoFreed MB freed"
+Write-Host "  Cargo cache:   $CargoFreed MB freed" -ForegroundColor Cyan
+
+# 19. ML Model Caches (opt-in — large re-downloads)
 $MLFreed = 0
 if ($CleanMLModels) {
     $MLCachePaths = @(
@@ -546,7 +606,7 @@ if ($CleanMLModels) {
     Write-Host "  ML models:    $MLFreed MB freed" -ForegroundColor Yellow
 }
 
-# 19. New Outlook (Olk) logs (>7 days)
+# 20. New Outlook (Olk) logs (>7 days)
 $OlkFreed = 0
 $OlkLogsPath = "$env:LOCALAPPDATA\Microsoft\Olk\logs"
 if (Test-Path $OlkLogsPath) {
@@ -591,10 +651,19 @@ Write-Host "  Claude old ver: $ClaudeOldVerFreed MB" -ForegroundColor Cyan
 Write-Host "  Claude logs:    $ClaudeLogsFreed MB" -ForegroundColor Cyan
 Write-Host "  Claude sessions:$ClaudeSessionsFreed MB" -ForegroundColor Cyan
 Write-Host "  Claude cache:   $ClaudeCacheFreed MB" -ForegroundColor Cyan
+Write-Host "  OfficeHub:      $OfficeHubFreed MB" -ForegroundColor Cyan
 if ($CleanCoworkVM) {
     Write-Host "  Cowork VM:     $ClaudeVMFreed MB" -ForegroundColor Yellow
+} elseif ($ClaudeVmBundleSizeMB -ge 1024) {
+    $ClaudeVmBundleSizeGB = [math]::Round($ClaudeVmBundleSizeMB / 1024, 2)
+    if ($ClaudeIsRunning) {
+        Write-Host "  Advisory: Claude vm_bundles = $ClaudeVmBundleSizeGB GB (close Claude, then opt in with `$CleanCoworkVM = `$true)" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Advisory: Claude vm_bundles = $ClaudeVmBundleSizeGB GB (opt in with `$CleanCoworkVM = `$true to purge)" -ForegroundColor Yellow
+    }
 }
 Write-Host "  WinGet cache:   $WinGetFreed MB" -ForegroundColor Cyan
+Write-Host "  Cargo cache:    $CargoFreed MB" -ForegroundColor Cyan
 if ($CleanMLModels) {
     Write-Host "  ML models:     $MLFreed MB" -ForegroundColor Yellow
 }
