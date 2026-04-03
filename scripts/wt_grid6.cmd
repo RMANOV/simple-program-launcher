@@ -9,4 +9,4 @@ REM  ├────┼────┤    3    │    4    │
 REM  │ 5  │ 6  │         │         │
 REM  └────┴────┴─────────┴─────────┘
 REM ═══════════════════════════════════════════════════════════
-start "" wt.exe -p "Claude Code" -d "C:\Users\rmanov" ; split-pane -V -s 0.75 -p "Claude Code" -d "C:\Users\rmanov" ; split-pane -V -s 0.666667 -p "Claude Code" -d "C:\Users\rmanov" ; split-pane -V -s 0.50 -p "Claude Code" -d "C:\Users\rmanov" ; focus-pane -t 0 ; split-pane -H -s 0.50 -p "Claude Code" -d "C:\Users\rmanov" ; move-focus right ; split-pane -H -s 0.50 -p "Claude Code" -d "C:\Users\rmanov" ; move-focus right
+start "" wt.exe -p "Claude Code Soft" -d "C:\Users\rmanov" ; split-pane -V -s 0.75 --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" ; split-pane -V -s 0.666667 -p "Claude Code" -d "C:\Users\rmanov" ; split-pane -V -s 0.50 -p "Claude Code" -d "C:\Users\rmanov" ; focus-pane -t 0 ; split-pane -H -s 0.50 --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" ; move-focus right ; split-pane -H -s 0.50 --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" ; move-focus right
