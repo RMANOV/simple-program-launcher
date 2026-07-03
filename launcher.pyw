@@ -3,6 +3,7 @@ Mouse Launcher - L+R Click to Launch
 Минималистичен launcher без външни зависимости
 Features: MFU tracking, Clipboard history, Fuzzy search
 """
+
 import ctypes
 import json
 import logging
@@ -20,7 +21,7 @@ logging.basicConfig(
     filename=LOG_FILE,
     level=logging.WARNING,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("launcher")
 
@@ -127,9 +128,7 @@ class LauncherPopup:
 
         # Sort by count descending
         sorted_paths = sorted(
-            usage.keys(),
-            key=lambda p: usage[p]["count"],
-            reverse=True
+            usage.keys(), key=lambda p: usage[p]["count"], reverse=True
         )[:top]
 
         result = []
@@ -151,7 +150,11 @@ class LauncherPopup:
                     if data and isinstance(data[0], str):
                         return [{"text": t, "count": 0, "last": ""} for t in data]
                     # Sort by count DESC, then by last DESC (newest first among same count)
-                    return sorted(data, key=lambda x: (x.get("count", 0), x.get("last", "")), reverse=True)
+                    return sorted(
+                        data,
+                        key=lambda x: (x.get("count", 0), x.get("last", "")),
+                        reverse=True,
+                    )
             except Exception as e:
                 logger.warning(f"Clipboard load failed: {e}")
         return []
@@ -160,9 +163,13 @@ class LauncherPopup:
         """Save clipboard history, evicting stale and least-used items"""
         # Time-based decay: count < 3 expires after 1 day, count >= 3 after count days
         now = datetime.now()
-        clips = [c for c in clips if not c.get("last") or (
-            now - datetime.fromisoformat(c["last"])
-        ).days < (1 if c.get("count", 0) < 3 else c.get("count", 0))]
+        clips = [
+            c
+            for c in clips
+            if not c.get("last")
+            or (now - datetime.fromisoformat(c["last"])).days
+            < (1 if c.get("count", 0) < 3 else c.get("count", 0))
+        ]
         # Evict least-used oldest when over limit
         while len(clips) > MAX_CLIPS:
             victim = min(clips, key=lambda c: (c.get("count", 0), c.get("last", "")))
@@ -228,15 +235,17 @@ class LauncherPopup:
         """Try to evaluate text as math expression"""
         try:
             # Clean up common math symbols
-            expr = text.strip().replace('x', '*').replace('×', '*').replace('÷', '/')
-            expr = expr.replace(',', '.').replace(' ', '')
+            expr = text.strip().replace("x", "*").replace("×", "*").replace("÷", "/")
+            expr = expr.replace(",", ".").replace(" ", "")
             # Only allow safe chars
-            if not all(c in '0123456789.+-*/()' for c in expr):
+            if not all(c in "0123456789.+-*/()" for c in expr):
                 return None
             if not expr or not any(c.isdigit() for c in expr):
                 return None
             result = eval(expr)
-            if isinstance(result, (int, float)) and result != float(expr.replace('.', '').replace('-', '') or 0):
+            if isinstance(result, (int, float)) and result != float(
+                expr.replace(".", "").replace("-", "") or 0
+            ):
                 return round(result, 4) if isinstance(result, float) else result
         except:
             pass
@@ -244,7 +253,7 @@ class LauncherPopup:
 
     def _show_tooltip(self, widget, text):
         """Show tooltip near widget"""
-        if hasattr(self, '_tooltip') and self._tooltip:
+        if hasattr(self, "_tooltip") and self._tooltip:
             self._tooltip.destroy()
         # Truncate very long text
         display = text[:500] + "..." if len(text) > 500 else text
@@ -252,9 +261,17 @@ class LauncherPopup:
         self._tooltip.overrideredirect(True)
         self._tooltip.attributes("-topmost", True)
         lbl = tk.Label(
-            self._tooltip, text=display, font=("Segoe UI", 9),
-            bg="#ffffcc", fg="#000000", relief="solid", borderwidth=1,
-            wraplength=300, justify="left", padx=4, pady=2
+            self._tooltip,
+            text=display,
+            font=("Segoe UI", 9),
+            bg="#ffffcc",
+            fg="#000000",
+            relief="solid",
+            borderwidth=1,
+            wraplength=300,
+            justify="left",
+            padx=4,
+            pady=2,
         )
         lbl.pack()
         # Position near widget
@@ -264,7 +281,7 @@ class LauncherPopup:
 
     def _hide_tooltip(self):
         """Hide tooltip"""
-        if hasattr(self, '_tooltip') and self._tooltip:
+        if hasattr(self, "_tooltip") and self._tooltip:
             self._tooltip.destroy()
             self._tooltip = None
 
@@ -279,8 +296,11 @@ class LauncherPopup:
         mfu = [m for m in self._get_mfu(MFU_COUNT) if m.get("path") not in pinned_paths]
         all_clips = self._load_clips()  # Already sorted by count
         today = datetime.now().date().isoformat()
-        clips = [c for c in all_clips if c.get("count", 0) > 2
-                 or c.get("last", "")[:10] == today][:10]
+        clips = [
+            c
+            for c in all_clips
+            if c.get("count", 0) > 2 or c.get("last", "")[:10] == today
+        ][:20]
 
         self.win = tk.Toplevel(self.root)
         self.win.overrideredirect(True)
@@ -352,7 +372,7 @@ class LauncherPopup:
             bg=self.BG,
             fg=self.SECTION_FG,
             anchor="w",
-            pady=2
+            pady=2,
         )
         lbl.pack(fill="x", pady=(2, 0))
         return lbl
@@ -439,6 +459,7 @@ class LauncherPopup:
             lbl.configure(bg=self.HOVER)
             if len(text) > 35:
                 self._show_tooltip(lbl, text)
+
         def on_leave(e):
             lbl.configure(bg=self.BG)
             self._hide_tooltip()
@@ -477,19 +498,33 @@ class LauncherPopup:
         self._add_form.pack(fill="x", pady=(4, 0))
 
         # Path field
-        tk.Label(self._add_form, text="Path:", font=("Segoe UI", 9),
-                bg=self.BG, fg="#888888").pack(anchor="w")
-        self._path_entry = tk.Entry(self._add_form, font=("Segoe UI", 10),
-                                    bg="#2d2d44", fg=self.FG, insertbackground=self.FG,
-                                    relief="flat", width=28)
+        tk.Label(
+            self._add_form, text="Path:", font=("Segoe UI", 9), bg=self.BG, fg="#888888"
+        ).pack(anchor="w")
+        self._path_entry = tk.Entry(
+            self._add_form,
+            font=("Segoe UI", 10),
+            bg="#2d2d44",
+            fg=self.FG,
+            insertbackground=self.FG,
+            relief="flat",
+            width=28,
+        )
         self._path_entry.pack(fill="x", pady=(0, 2))
 
         # Name field
-        tk.Label(self._add_form, text="Name:", font=("Segoe UI", 9),
-                bg=self.BG, fg="#888888").pack(anchor="w")
-        self._name_entry = tk.Entry(self._add_form, font=("Segoe UI", 10),
-                                    bg="#2d2d44", fg=self.FG, insertbackground=self.FG,
-                                    relief="flat", width=28)
+        tk.Label(
+            self._add_form, text="Name:", font=("Segoe UI", 9), bg=self.BG, fg="#888888"
+        ).pack(anchor="w")
+        self._name_entry = tk.Entry(
+            self._add_form,
+            font=("Segoe UI", 10),
+            bg="#2d2d44",
+            fg=self.FG,
+            insertbackground=self.FG,
+            relief="flat",
+            width=28,
+        )
         self._name_entry.pack(fill="x", pady=(0, 2))
 
         # Bind Enter to save
@@ -555,13 +590,16 @@ class LauncherPopup:
                 normalized_path = path.strip().strip('"')
                 base_name = os.path.basename(normalized_path).lower()
                 ext = os.path.splitext(path)[1].lower()
-                if base_name == "cmd.exe" or normalized_path.lower() in {"cmd", "cmd.exe"}:
+                if base_name == "cmd.exe" or normalized_path.lower() in {
+                    "cmd",
+                    "cmd.exe",
+                }:
                     subprocess.Popen(
                         ["cmd.exe"],
                         cwd=str(Path.home()),
                         creationflags=subprocess.CREATE_NEW_CONSOLE,
                     )
-                elif ext in ('.bat', '.cmd'):
+                elif ext in (".bat", ".cmd"):
                     subprocess.Popen(path, creationflags=subprocess.CREATE_NEW_CONSOLE)
                 elif os.path.exists(path):
                     os.startfile(path)
@@ -671,6 +709,7 @@ if __name__ == "__main__":
     mutex = kernel32.CreateMutexW(None, True, "MouseLauncherMutex")
     if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
         import sys
+
         sys.exit(0)  # Another instance running, exit silently
 
     MouseLauncher().run()
