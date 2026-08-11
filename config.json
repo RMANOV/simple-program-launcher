@@ -18,10 +18,13 @@
     {"name": "Calculator", "path": "calc.exe", "icon": "🔢"},
     {"name": "CMD", "path": "C:\\Windows\\System32\\cmd.exe", "icon": "⌨"},
     {"name": "─────────────", "path": "", "icon": " ", "separator": true},
+    {"name": "Claude Resume", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\claude_resume.cmd", "icon": "↻"},
+    {"name": "Codex Resume", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\codex_resume.cmd", "icon": "↻"},
     {"name": "WT Quad (4)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_quad.cmd", "icon": "▰"},
     {"name": "WT Trio (3)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_trio.cmd", "icon": "▰"},
     {"name": "WT Duo (2)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_duo.cmd", "icon": "▰"},
     {"name": "WT Dashboard", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_dashboard.cmd", "icon": "▰"},
-    {"name": "WT Grid (6)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_grid6.cmd", "icon": "▰"}
+    {"name": "WT Grid (6)", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\wt_grid6.cmd", "icon": "▰"},
+    {"name": "Статус", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\razuznavach.cmd", "icon": "🔍"}
   ]
 }
