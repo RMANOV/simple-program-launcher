@@ -79,6 +79,11 @@ cd simple-program-launcher
 > # Log out and back in
 > ```
 
+For Fedora-specific console audit and Claude/Codex four-pane session parity,
+see [`docs/FEDORA.md`](docs/FEDORA.md). It uses a user-owned tmux workspace;
+the repository never receives clipboard contents, launcher usage files, or
+shell history.
+
 ### Windows (Python - Zero Dependencies)
 
 ```powershell
@@ -86,6 +91,13 @@ cd simple-program-launcher
 pip install pynput pywin32
 .\scripts\install_windows.ps1
 ```
+
+The optional `scripts/claude_resume.cmd`, `scripts/codex_resume.cmd`, and
+`scripts/wt_quad.cmd` provide the same idempotent fixed-pane resume behavior
+when Claude/Codex are installed. Set `SPL_WT_WORKDIR`, `SPL_WT_PROFILE`, and
+`SPL_WT_PROFILE_SOFT` if the Windows Terminal profile names differ from the
+defaults. These scripts keep UUID state under the user's local application
+state directory; they do not package clipboard or launcher usage data.
 
 ### macOS
 
