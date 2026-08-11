@@ -40,6 +40,35 @@ python launcher.pyw
 
 ---
 
+## Claude / Codex session panes
+
+`WT Quad (4)` reserves the left two panes as persistent launcher slots:
+
+- pane 1: Claude
+- pane 2: Codex
+- panes 3-4: regular CMD/Clink shells
+
+`WT Quad (4)` is the only command that creates the stable named window
+`RManovQuad`; its first two panes run resident supervisors. `Claude Resume` and
+`Codex Resume` only send an idempotent request to those existing slots. They do
+not create a window/tab/pane, never kill an active writer, and never create one
+window per agent/click. State is stored under
+`%LOCALAPPDATA%\RManov\SessionPanes` by `scripts/session_pane.ps1`.
+
+The old automatic four-pane `startupActions` is disabled so a normal WT launch
+cannot create a second, unmanaged quad. After the current old tab is no longer
+needed, close that WT window once and run `WT Quad (4)` to create the canonical
+layout; later resume clicks stay in its fixed panes.
+
+Inside either TUI, `/restart` records the exact session UUID.  After exit, the
+same UUID is resumed; a failed resume keeps the state for the next attempt.
+
+The CMD panes load `%LOCALAPPDATA%\clink\console_audit.lua`, which prints a
+dated/attributed `COMMAND` prompt and a separate `RESULT` marker immediately
+before command output.
+
+---
+
 ## Adding Items
 
 ### Method 1: Via UI (Quick)

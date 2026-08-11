@@ -46,6 +46,15 @@ MAX_CLIPS = 20
 MFU_COUNT = 5
 CLIP_POLL_MS = 500
 
+# These commands only dispatch work to an existing Windows Terminal pane.
+# Running them in a transient console causes the double-window flash that the
+# session-pane broker is specifically designed to avoid.
+BACKGROUND_CMD_NAMES = {
+    "claude_resume.cmd",
+    "codex_resume.cmd",
+    "wt_quad.cmd",
+}
+
 
 class LauncherPopup:
     """Floating popup window with pinned items"""
@@ -600,7 +609,16 @@ class LauncherPopup:
                         creationflags=subprocess.CREATE_NEW_CONSOLE,
                     )
                 elif ext in (".bat", ".cmd"):
-                    subprocess.Popen(path, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    flags = (
+                        subprocess.CREATE_NO_WINDOW
+                        if base_name in BACKGROUND_CMD_NAMES
+                        else subprocess.CREATE_NEW_CONSOLE
+                    )
+                    subprocess.Popen(
+                        ["cmd.exe", "/d", "/c", "call", normalized_path],
+                        cwd=os.path.dirname(normalized_path) or str(Path.home()),
+                        creationflags=flags,
+                    )
                 elif os.path.exists(path):
                     os.startfile(path)
                 else:

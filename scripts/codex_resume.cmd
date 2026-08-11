@@ -1,6 +1,7 @@
 @echo off
 REM ============================================================
-REM  Codex Resume - prodalzhava POSLEDNATA Codex sesiya
-REM  Minava prez bashrc codex() wrapper-a (/restart loop)
+REM  Codex Resume - idempotent request to the fixed quad pane.
+REM  Exact UUID is stored by /restart; a repeated click only focuses.
 REM ============================================================
-start "" wt.exe -d "C:\Users\rmanov" "C:\Users\rmanov\AppData\Local\Programs\Git\usr\bin\bash.exe" -ilc "codex resume --last"
+pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0session_pane.ps1" -Mode Request -Agent codex
+exit /b %ERRORLEVEL%

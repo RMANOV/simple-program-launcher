@@ -1,6 +1,7 @@
 @echo off
 REM ============================================================
-REM  Claude Resume - prodalzhava POSLEDNATA Claude sesiya v ~
-REM  Minava prez bashrc wrapper-a: pre-launch patch + /restart loop
+REM  Claude Resume - idempotent request to the fixed quad pane.
+REM  Exact UUID is stored by /restart; a repeated click only focuses.
 REM ============================================================
-start "" wt.exe -d "C:\Users\rmanov" "C:\Users\rmanov\AppData\Local\Programs\Git\usr\bin\bash.exe" -ilc "claude --continue"
+pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0session_pane.ps1" -Mode Request -Agent claude
+exit /b %ERRORLEVEL%
