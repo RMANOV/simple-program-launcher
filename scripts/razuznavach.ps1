@@ -166,7 +166,7 @@ function Show-Snapshot {
 do {
     if ($Watch) { Clear-Host }
     Write-Host ""
-    Write-Host "  РАЗУЗНАВАЧ — 18 получателя" -ForegroundColor White
+    Write-Host "  СТАТУС — 18 получателя" -ForegroundColor White
     $fb = Get-AllStatus
     for ($d = 0; $d -lt $Days; $d++) { Show-Board -fb $fb -dayOffset $d }
     if ($At) { Show-Snapshot -fb $fb -timeText $At }
