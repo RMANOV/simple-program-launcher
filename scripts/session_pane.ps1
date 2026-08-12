@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('Host', 'Request', 'MarkRestart', 'PrepareLayout', 'Inspect', 'SelfTest')]
+    [ValidateSet('Host', 'Request', 'MarkRestart', 'PrepareLayout', 'Focus', 'Inspect', 'SelfTest')]
     [string]$Mode = 'Inspect',
 
     [ValidateSet('claude', 'codex')]
@@ -158,6 +158,37 @@ function Test-WindowsTerminalAlive {
     }
 }
 
+function Test-CanonicalWorkspaceExpected {
+    # Do not call `wt -w <name>` merely to probe the window: Windows Terminal
+    # creates a new named window when the name is missing.  The layout/state
+    # files are our non-creating read-side hint that the canonical workspace
+    # was bootstrapped previously.
+    if (-not (Test-WindowsTerminalAlive)) {
+        return $false
+    }
+    if (Test-Path -LiteralPath $LayoutFile) {
+        $layout = Read-JsonHashtable $LayoutFile
+        if ($layout.Contains('canonicalWindow') -and
+            [string]::Equals([string]$layout['canonicalWindow'], $TerminalWindow, [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    foreach ($candidate in @('claude', 'codex')) {
+        $candidatePath = Join-Path $StateRoot "$candidate.json"
+        if (-not (Test-Path -LiteralPath $candidatePath)) {
+            continue
+        }
+        $candidateState = Invoke-WithMutex "SessionPaneState_$candidate" {
+            Read-JsonHashtable $candidatePath
+        }
+        if ($candidateState.Contains('hostWtSession') -and
+            -not [string]::IsNullOrWhiteSpace([string]$candidateState['hostWtSession'])) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Test-HostAlive {
     param([string]$ForAgent)
 
@@ -202,35 +233,67 @@ function Focus-AgentPane {
     # The quad layout is deterministic: Claude is the leftmost pane and Codex
     # is immediately to its right.  WT has no supported "send command to an
     # existing pane" CLI; the resident Host process is what makes reuse safe.
-    $arguments = @('-w', $TerminalWindow, 'focus-tab', '-t', '0', ';', 'move-focus', 'first')
+    # Run the CLI through CMD so the documented `\;` command delimiters are
+    # preserved across the PowerShell -> wt.exe boundary.  Passing a raw `;`
+    # in a PowerShell argument array is accepted inconsistently by WT builds
+    # and can leave focus in whichever pane was active before the click.
+    $arguments = @('/d', '/c', 'wt.exe', '-w', $TerminalWindow, 'focus-tab', '-t', '0', '\;', 'move-focus', 'first')
     if ($ForAgent -eq 'codex') {
-        $arguments += @(';', 'move-focus', 'right')
+        $arguments += @('\;', 'move-focus', 'right')
     }
     try {
-        & wt.exe @arguments | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Audit 'SESSION-PANE' 'WARN' "Windows Terminal focus exit code: $LASTEXITCODE"
+        & cmd.exe @arguments | Out-Null
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { [int]$LASTEXITCODE }
+        if ($exitCode -ne 0) {
+            Write-Audit 'SESSION-PANE' 'WARN' "Windows Terminal focus exit code: $exitCode"
         }
+        else {
+            # The named window may have been minimized to the notification
+            # area.  focus-tab is the supported way to restore it; AppActivate
+            # is only a best-effort foreground nudge after WT has materialized
+            # a window handle.
+            Start-Sleep -Milliseconds 120
+            $terminal = Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue |
+                Where-Object { $_.MainWindowHandle -ne 0 } |
+                Sort-Object StartTime -Descending |
+                Select-Object -First 1
+            if ($terminal) {
+                try {
+                    $shell = New-Object -ComObject WScript.Shell
+                    $shell.AppActivate($terminal.Id) | Out-Null
+                }
+                catch {
+                    # WT already handled the focus request; COM is optional.
+                }
+            }
+        }
+        return $exitCode
     }
     catch {
         Write-Audit 'SESSION-PANE' 'WARN' 'Windows Terminal не можа да фокусира панела.'
+        return 1
     }
 }
 
 function Focus-TerminalWindow {
-    try {
-        $terminal = Get-Process -Name 'WindowsTerminal' -ErrorAction Stop |
-            Where-Object { $_.MainWindowHandle -ne 0 } |
-            Sort-Object StartTime -Descending |
-            Select-Object -First 1
-        if ($terminal) {
-            $shell = New-Object -ComObject WScript.Shell
-            $shell.AppActivate($terminal.Id) | Out-Null
+    param([string]$ForAgent)
+
+    if (Test-CanonicalWorkspaceExpected) {
+        if ($ForAgent -in @('claude', 'codex')) {
+            [void](Focus-AgentPane $ForAgent)
         }
+        else {
+            try {
+                & cmd.exe @('/d', '/c', 'wt.exe', '-w', $TerminalWindow, 'focus-tab', '-t', '0') | Out-Null
+            }
+            catch {
+                Write-Audit 'SESSION-PANE' 'WARN' 'Windows Terminal не можа да фокусира canonical window.'
+            }
+        }
+        return
     }
-    catch {
-        # Focus is best-effort; the idempotence guard must still remain a no-op.
-    }
+
+    Write-Audit 'SESSION-PANE' 'NOOP' 'Няма доказан canonical window; няма да се фокусира случаен WT прозорец.'
 }
 
 function Get-RunningExplicitSessionId {
@@ -705,8 +768,15 @@ function Run-Request {
             }
         }
 
+        $canonicalExpected = Test-CanonicalWorkspaceExpected
+        if ($canonicalExpected) {
+            # This also restores a window that was hidden in the notification
+            # area.  It is deliberately done before every state branch so a
+            # dead host cannot strand an otherwise live session in the tray.
+            [void](Focus-AgentPane $Agent)
+        }
+
         if ($hostAlive) {
-            Focus-AgentPane $Agent
             $status = if ($state.Contains('status')) { [string]$state['status'] } else { '' }
             if ($status -eq 'external-active' -and $id -and (Test-SessionAlreadyActive $Agent $id)) {
                 return
@@ -726,9 +796,6 @@ function Run-Request {
                 sessionId = $id
                 lastError = $null
             }
-            # The launcher popup closes back to the pane that already owns the
-            # writer.  Do not create another tab and do not kill that writer.
-            Focus-TerminalWindow
             return
         }
 
@@ -737,7 +804,6 @@ function Run-Request {
                 status = 'external-active-unidentified'
                 lastError = 'run-/restart-once-to-capture-id'
             }
-            Focus-TerminalWindow
             return
         }
 
@@ -746,7 +812,6 @@ function Run-Request {
         if ($status -in $busy) {
             # A second click is deliberately idempotent even while the canonical
             # window is being opened.  It never creates another tab.
-            Focus-TerminalWindow
             return
         }
 
@@ -761,8 +826,16 @@ function Run-Request {
             lastError = 'canonical-pane-not-ready-open-WT-Quad-4'
         }
         Write-Audit 'SESSION-PANE' 'QUEUED' 'Няма здрав canonical pane; заявката остава записана без нов Terminal tab.'
-        Focus-TerminalWindow
     }
+}
+
+function Run-Focus {
+    Ensure-StateDirectories
+    if (-not (Test-CanonicalWorkspaceExpected)) {
+        Write-Audit 'SESSION-PANE' 'NOOP' 'Няма доказан canonical window; няма да се създава нов tab само за фокус.'
+        exit 20
+    }
+    exit ([int](Focus-AgentPane $Agent))
 }
 
 function Run-MarkRestart {
@@ -806,7 +879,18 @@ function Run-PrepareLayout {
         $claudeAlive = Test-HostAlive 'claude'
         $codexAlive = Test-HostAlive 'codex'
         if ($claudeAlive -and $codexAlive) {
-            Focus-AgentPane 'claude'
+            [void](Focus-AgentPane 'claude')
+            return 0
+        }
+
+        $terminalAlive = Test-WindowsTerminalAlive
+        if ($terminalAlive -and (Test-CanonicalWorkspaceExpected)) {
+            # The user's existing four-pane window may predate the resident
+            # hosts (or contain live external writers).  It is still the
+            # canonical window: restore/focus it, but never append a second
+            # tab or launch a competing writer just because a host is absent.
+            [void](Focus-AgentPane 'claude')
+            Write-Audit 'SESSION-PANE' 'FOCUSED' 'Съществуващият RManovQuad е върнат на преден план; нов tab не е създаден.'
             return 0
         }
 
@@ -818,8 +902,6 @@ function Run-PrepareLayout {
             return 20
         }
 
-        $layout = Read-JsonHashtable $LayoutFile
-        $terminalAlive = Test-WindowsTerminalAlive
         if ($terminalAlive) {
             # An existing WT process with no healthy hosts is either the user's
             # old four-pane layout or a damaged canonical window.  Public wt.exe
@@ -828,6 +910,7 @@ function Run-PrepareLayout {
             return 20
         }
 
+        $layout = Read-JsonHashtable $LayoutFile
         if ($layout.Contains('startedAt')) {
             try {
                 $started = [datetime]::Parse([string]$layout['startedAt'])
@@ -840,6 +923,9 @@ function Run-PrepareLayout {
             }
         }
         Write-JsonAtomic $LayoutFile ([ordered]@{
+            canonicalWindow = $TerminalWindow
+            tabIndex = 0
+            paneLayout = 'claude,codex,shell,main'
             startedAt = (Get-Date).ToString('o')
             pid = $PID
         })
@@ -882,6 +968,7 @@ switch ($Mode) {
     'Request'       { Run-Request; break }
     'MarkRestart'   { Run-MarkRestart; break }
     'PrepareLayout' { Run-PrepareLayout; break }
+    'Focus'         { Run-Focus; break }
     'Inspect'       {
         Ensure-StateDirectories
         [pscustomobject](Get-AgentState) | Format-List

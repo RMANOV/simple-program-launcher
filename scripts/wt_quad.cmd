@@ -14,5 +14,8 @@ if not "%LAYOUT_RC%"=="10" exit /b %LAYOUT_RC%
 REM One bootstrap owner: only this command creates the named canonical window.
 REM Each managed slot has a supervisor, so a broker crash is repaired in the
 REM same pane instead of appending a second tab.
-start "" wt.exe -w RManovQuad new-tab --title "Claude slot" --suppressApplicationTitle -p "Claude Code Soft" -d "C:\Users\rmanov" cmd.exe /d /c call "%PANE_SLOT%" claude ; split-pane -V -s 0.80 --title "Codex slot" --suppressApplicationTitle --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" cmd.exe /d /c call "%PANE_SLOT%" codex ; split-pane -V -s 0.75 --title "Shell" --suppressApplicationTitle --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" ; split-pane -V -s 0.6667 --title "MAIN" --suppressApplicationTitle -p "Claude Code" -d "C:\Users\rmanov" ; move-focus first
+REM In a CMD script the WT command delimiters must be written as \;.
+REM Without the backslash WT can consume the remainder as arguments to the
+REM first profile, leaving ordinary profile shells instead of the two hosts.
+start "" wt.exe -w RManovQuad new-tab --title "Claude slot" --suppressApplicationTitle -p "Claude Code Soft" -d "C:\Users\rmanov" cmd.exe /d /c call "%PANE_SLOT%" claude \; split-pane -V -s 0.80 --title "Codex slot" --suppressApplicationTitle --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" cmd.exe /d /c call "%PANE_SLOT%" codex \; split-pane -V -s 0.75 --title "Shell" --suppressApplicationTitle --colorScheme "DeepFocus" -p "Claude Code" -d "C:\Users\rmanov" \; split-pane -V -s 0.6667 --title "MAIN" --suppressApplicationTitle -p "Claude Code" -d "C:\Users\rmanov" \; move-focus first
 exit /b 0
