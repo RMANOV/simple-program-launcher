@@ -6,6 +6,7 @@
     {"name": "Reports GUI", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_gui.vbs", "icon": "📊"},
     {"name": "Screensaver", "path": "D:\\OneDrive - Крестън БулМар ООД\\screensavers\\start_screensaver.vbs", "icon": "🖼"},
     {"name": "MS Guard Run", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\scripts\\guard_run.bat", "icon": "🛡"},
+    {"name": "MS State Gate", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\scripts\\state_gate.bat", "icon": "🔍"},
     {"name": "Backup Mirror", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\backup_mirror.bat", "icon": "🔄"},
     {"name": "Disk Cleanup", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\disk_cleanup.bat", "icon": "🗑"},
     {"name": "CLI High Boost", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\cli_high_boost.bat", "icon": "⚡"},
