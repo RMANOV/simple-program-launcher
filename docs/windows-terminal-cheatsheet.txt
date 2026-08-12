@@ -1,0 +1,571 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║         WINDOWS TERMINAL - DEEP FOCUS KEYBINDINGS CHEAT SHEET                ║
+║                        Claude Code Optimized v3                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+══════════════════════════════════════════════════════════════════════════════
+  SESSION RESUME / CANONICAL 4-PANE RECOVERY (2026-08-12)
+══════════════════════════════════════════════════════════════════════════════
+  Canonical WT window: RManovQuad    tab: 0
+  Managed panes:       Claude (left)  Codex (right)  Shell  MAIN
+
+  Launcher buttons "Claude Resume" and "Codex Resume" are request/focus
+  commands.  They reuse the remembered session ID and never create a new
+  Windows Terminal tab or kill an active writer.  A second click is a no-op
+  while the same session is running; the existing pane is focused instead.
+
+  Focus Claude from an existing CMD/PowerShell pane:
+    cmd.exe /d /c wt.exe -w RManovQuad focus-tab -t 0 \; move-focus first
+
+  Focus Codex from an existing CMD/PowerShell pane:
+    cmd.exe /d /c wt.exe -w RManovQuad focus-tab -t 0 \; move-focus first \; move-focus right
+
+  Inspect the durable per-agent state (read-only):
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\session_pane.ps1" -Mode Inspect -Agent claude
+    pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "D:\OneDrive - Крестън БулМар ООД\utilities\launcher\scripts\session_pane.ps1" -Mode Inspect -Agent codex
+
+  "WT Quad (4)" is the only bootstrap command.  If the existing canonical
+  window is found, it prints FOCUSED and restores that four-pane window without
+  adding a tab.  The resume buttons likewise never repair a damaged layout by
+  appending a tab.  If WT Quad reports CANONICAL-NOT-READY, no canonical
+  workspace is proven; wait for Claude/Codex to be idle before a controlled
+  rebuild.  Preserve exact session IDs and writer locks; never force-kill a
+  live Claude/Codex process to make a pane appear.
+
+  The `\;` delimiters above are intentional: in a CMD-launched WT command
+  they separate `focus-tab`/`move-focus` actions.  Omitting the backslash can
+  make WT treat the remaining split/focus commands as profile arguments.
+
+  Modifier Logic:  Alt        = Navigate
+                   Alt+Shift  = Split / Toggle
+                   Alt+Ctrl   = Resize
+                   Alt+Shift+Ctrl = Swap
+                   Ctrl+Shift = Advanced actions
+
+══════════════════════════════════════════════════════════════════════════════
+  TRANSPARENCY & EFFECTS
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Alt++          Increase opacity (less transparent)
+  Ctrl+Alt+-          Decrease opacity (more transparent)
+  Ctrl+Alt+0          Reset opacity to default
+
+══════════════════════════════════════════════════════════════════════════════
+  SUGGESTIONS & HISTORY (IntelliSense-style)
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Space          Show suggestions menu (commands, paths, history)
+  Up/Down             Navigate suggestions
+  Tab                 Accept suggestion
+  Ctrl+Up             Jump to previous command (mark)
+  Ctrl+Down           Jump to next command (mark)
+  Ctrl+Shift+W        Select last command output
+  F7                  CMD history popup (built-in)
+  F8                  CMD history search (type prefix + F8)
+
+══════════════════════════════════════════════════════════════════════════════
+  CLEAR & CLEANUP
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+L              Clear screen (keep scrollback)
+  Ctrl+Shift+L        Clear scrollback (full wipe)
+
+══════════════════════════════════════════════════════════════════════════════
+  SEARCH & SELECT
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+F              Find in terminal
+  F3                  Next match
+  Shift+F3            Previous match
+  Ctrl+Shift+A        Select all output
+  Ctrl+Shift+M        Mark mode (keyboard selection)
+  Ctrl+Shift+Space    Toggle selection mode
+
+══════════════════════════════════════════════════════════════════════════════
+  EXPORT & CLIPBOARD
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+C              Copy selection
+  Ctrl+V              Paste
+  Shift+Insert        Paste (alternative)
+  Ctrl+Shift+E        Export buffer to file
+
+══════════════════════════════════════════════════════════════════════════════
+  SPLITS (Create Panes)
+══════════════════════════════════════════════════════════════════════════════
+  Alt+Shift+L         Split right  ->
+  Alt+Shift+H         Split left   <-
+  Alt+Shift+J         Split down
+  Alt+Shift+K         Split up
+  Alt+Shift+D         Auto split (smart)
+
+══════════════════════════════════════════════════════════════════════════════
+  RESIZE (Change Pane Size)
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Alt+H          Resize left  <-
+  Ctrl+Alt+L          Resize right ->
+  Ctrl+Alt+K          Resize up
+  Ctrl+Alt+J          Resize down
+
+══════════════════════════════════════════════════════════════════════════════
+  NAVIGATE (Move Focus Between Panes)
+══════════════════════════════════════════════════════════════════════════════
+  Alt+H               Focus left   <-
+  Alt+L               Focus right  ->
+  Alt+K               Focus up
+  Alt+J               Focus down
+  Alt+`               Previous pane
+
+══════════════════════════════════════════════════════════════════════════════
+  SWAP (Exchange Pane Positions)
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Alt+Shift+H    Swap left  <-
+  Ctrl+Alt+Shift+L    Swap right ->
+  Ctrl+Alt+Shift+K    Swap up
+  Ctrl+Alt+Shift+J    Swap down
+
+══════════════════════════════════════════════════════════════════════════════
+  PANE MANAGEMENT
+══════════════════════════════════════════════════════════════════════════════
+  Alt+W               Close current pane
+  Alt+Z               Toggle pane zoom (fullscreen pane)
+  Alt+1               Focus first pane
+  Ctrl+Alt+T          Restore last closed pane
+  Ctrl+Shift+B        Broadcast input (type to ALL panes)
+
+══════════════════════════════════════════════════════════════════════════════
+  TABS
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+T              New tab
+  Ctrl+Shift+T        New tab dropdown (choose profile)
+  Ctrl+W              Close tab
+  Ctrl+Tab            Next tab
+  Ctrl+Shift+Tab      Previous tab
+  Ctrl+1..8           Switch to tab 1-8
+  Ctrl+9              Switch to LAST tab
+  Ctrl+Shift+D        Duplicate tab
+  Ctrl+Shift+.        Move tab position
+  Ctrl+Shift+R        Rename tab
+  Ctrl+Shift+G        Tab color picker
+  Shift+F10           Context menu (right-click)
+
+══════════════════════════════════════════════════════════════════════════════
+  SCROLLING
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Shift+Up       Scroll up / Select previous command
+  Ctrl+Shift+Down     Scroll down / Select next command
+  Ctrl+Shift+PgUp     Scroll page up
+  Ctrl+Shift+PgDn     Scroll page down
+  Ctrl+Shift+Home     Scroll to top
+  Ctrl+Shift+End      Scroll to bottom
+
+══════════════════════════════════════════════════════════════════════════════
+  FONT
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl++              Increase font size
+  Ctrl+-              Decrease font size
+  Ctrl+0              Reset font size
+
+══════════════════════════════════════════════════════════════════════════════
+  WINDOW & DISPLAY
+══════════════════════════════════════════════════════════════════════════════
+  F11                 Toggle fullscreen
+  Alt+Shift+F         Toggle focus mode (hide tabs/title)
+  Alt+Shift+T         Toggle always on top
+  Alt+Space           Open system menu
+
+══════════════════════════════════════════════════════════════════════════════
+  SETTINGS & TOOLS
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+,              Open settings (JSON)
+  Ctrl+Shift+,        Open settings (UI)
+  Ctrl+Shift+P        Command palette (search ALL commands)
+  Ctrl+Shift+I        Send custom input
+
+══════════════════════════════════════════════════════════════════════════════
+  PER-PANE COLOR SCHEMES
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Shift+F1      Set focused pane to DeepFocus (soft, dark blue)
+  Ctrl+Shift+F2      Set focused pane to DeepFocusContrast (max contrast)
+
+══════════════════════════════════════════════════════════════════════════════
+  BACKGROUND SWITCHER (Ctrl+Shift+number)  -- live, no restart
+══════════════════════════════════════════════════════════════════════════════
+  Ctrl+Shift+0   True Black    #000000  (fg #FFFFFF)   max contrast
+  Ctrl+Shift+1   Navy          #0A1F3D  (fg #E6F1FF)
+  Ctrl+Shift+2   Forest        #0C2417  (fg #E6FFE9)
+  Ctrl+Shift+3   Charcoal      #1E1E1E  (fg #FFFFFF)
+  Ctrl+Shift+4   Aubergine     #1E0F2B  (fg #F3E6FF)
+  Ctrl+Shift+5   Sepia         #241704  (fg #FFF1D6)
+  Ctrl+Shift+6   Teal          #002B36  (fg #E6FBFF)
+  Ctrl+Shift+7   Paper (light) #F5F5F0  (fg #1A1A1A)  for bright rooms
+  NOTE: plain Ctrl+0..9 left intact (font-reset / tab-switch).
+
+══════════════════════════════════════════════════════════════════════════════
+  COLOR SCHEMES
+══════════════════════════════════════════════════════════════════════════════
+  DeepFocus           Dark blue (#0D1117) - balanced        [SECONDARY panes]
+  DeepFocusContrast   Pure black (#000000) - max contrast   [MAIN pane]
+  BG0..BG7            Background switcher schemes (see above)  [Ctrl+Shift+0-7]
+
+══════════════════════════════════════════════════════════════════════════════
+  PRO TIPS
+══════════════════════════════════════════════════════════════════════════════
+
+  0. TRANSPARENCY (Ctrl+Alt++/-):
+     Adjust window transparency on the fly!
+     Use with Acrylic blur for beautiful glass effect
+
+  1. SUGGESTIONS MENU (Ctrl+Space):
+     IntelliSense-style autocomplete for terminal!
+     Shows: recent commands, file paths, git branches
+     Requires: Shell Integration enabled (auto-enabled for PowerShell)
+
+  2. BROADCAST MODE (Ctrl+Shift+B):
+     Type the same command in ALL open panes simultaneously!
+     Perfect for: SSH to multiple servers, run same command everywhere
+
+  3. MARK MODE (Ctrl+Shift+M):
+     Use keyboard to select text without mouse
+     Arrows to move, Shift+Arrows to select, Enter to copy
+
+  4. EXPORT BUFFER (Ctrl+Shift+E):
+     Save entire terminal output to text file
+     Great for: logs, debug sessions, documentation
+
+  5. COMMAND PALETTE (Ctrl+Shift+P):
+     Search and run ANY command by name
+     Faster than remembering shortcuts
+
+  6. TAB COLORS (Ctrl+Shift+G):
+     Color-code tabs for different projects/servers
+     Visual organization for multiple sessions
+
+══════════════════════════════════════════════════════════════════════════════
+  QUICK WORKFLOW EXAMPLES
+══════════════════════════════════════════════════════════════════════════════
+
+  1. Side-by-side coding:
+     Alt+Shift+L  ->  Opens right pane
+     Alt+H        ->  Go back to left
+     Alt+L        ->  Go to right
+
+  2. 3-pane layout (main + 2 small):
+     Alt+Shift+L  ->  Split right
+     Alt+Shift+J  ->  Split the right pane down
+     Alt+H        ->  Back to main (left)
+
+  3. Zoom into pane temporarily:
+     Alt+Z        ->  Zoom current pane
+     Alt+Z        ->  Unzoom (restore layout)
+
+  4. Rebalance panes:
+     Ctrl+Alt+L   ->  Make current wider
+     Ctrl+Alt+H   ->  Make current narrower
+
+  5. Multi-server command:
+     Alt+Shift+L  ->  Split right
+     Alt+Shift+J  ->  Split again
+     Ctrl+Shift+B ->  Enable broadcast
+     [type command - goes to all 3 panes!]
+     Ctrl+Shift+B ->  Disable broadcast
+
+  6. Save debug session:
+     [run commands, see errors]
+     Ctrl+Shift+A ->  Select all
+     Ctrl+C       ->  Copy to clipboard
+     -- OR --
+     Ctrl+Shift+E ->  Export to file
+
+  7. Adjust transparency:
+     Ctrl+Alt+-   ->  More transparent
+     Ctrl+Alt++   ->  Less transparent
+     Ctrl+Alt+0   ->  Reset to default
+
+  8. Per-pane colors:
+     Ctrl+Shift+F1  ->  Soft (DeepFocus) for reference panes
+     Ctrl+Shift+F2  ->  Max contrast (DeepFocusContrast) for main work
+     WT scripts pre-configure: MAIN=Contrast, secondary=Soft
+
+══════════════════════════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════════════════════
+══════════════════════════════════════════════════════════════════════════════
+  SETTINGS.JSON SNAPSHOT (for portable transfer)
+══════════════════════════════════════════════════════════════════════════════
+  Location: %LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
+  Updated: 2026-04-03 09:30
+══════════════════════════════════════════════════════════════════════════════
+
+{
+    "$help": "https://aka.ms/terminal-documentation",
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "actions": [
+        {
+            "command": { "action": "splitPane", "split": "auto" },
+            "id": "User.splitPane.91AB55B1"
+        },
+        {
+            "command": { "action": "closeTab" },
+            "id": "User.closeTab.0"
+        },
+        {
+            "command": { "action": "setColorScheme", "colorScheme": "DeepFocus" },
+            "id": "User.setColorScheme.DeepFocus"
+        },
+        {
+            "command": { "action": "setColorScheme", "colorScheme": "DeepFocusContrast" },
+            "id": "User.setColorScheme.DeepFocusContrast"
+        }
+    ],
+    "alwaysShowTabs": true,
+    "centerOnLaunch": true,
+    "compatibility.allowHeadless": true,
+    "copyFormatting": "none",
+    "copyOnSelect": true,
+    "defaultProfile": "{c1a0de00-c0de-4c1a-9de0-c0dec1a0de01}",
+    "firstWindowPreference": "defaultProfile",
+    "keybindings": [
+        { "id": "Terminal.DuplicateTab", "keys": "ctrl+shift+d" },
+        { "id": "Terminal.PrevTab", "keys": "ctrl+shift+tab" },
+        { "id": "Terminal.CopyToClipboard", "keys": "ctrl+c" },
+        { "id": "Terminal.SplitPaneDown", "keys": "alt+shift+j" },
+        { "id": "Terminal.OpenSettingsFile", "keys": "ctrl+comma" },
+        { "id": "Terminal.PasteFromClipboard", "keys": "ctrl+v" },
+        { "id": "Terminal.RestoreLastClosedPane", "keys": "ctrl+alt+t" },
+        { "id": "Terminal.PasteFromClipboard", "keys": "shift+insert" },
+        { "id": "Terminal.SplitPaneLeft", "keys": "alt+shift+h" },
+        { "id": "Terminal.SplitPaneRight", "keys": "alt+shift+l" },
+        { "id": "Terminal.OpenTabRenamer", "keys": "ctrl+shift+r" },
+        { "id": "Terminal.SplitPaneUp", "keys": "alt+shift+k" },
+        { "id": "Terminal.DecreaseFontSize", "keys": "ctrl+minus" },
+        { "id": "Terminal.IncreaseFontSize", "keys": "ctrl+plus" },
+        { "id": "User.splitPane.91AB55B1", "keys": "alt+shift+d" },
+        { "id": "Terminal.SendInput", "keys": "ctrl+shift+i" },
+        { "id": "Terminal.ResizePaneLeft", "keys": "ctrl+alt+h" },
+        { "id": "Terminal.OpenNewTabDropdown", "keys": "ctrl+shift+t" },
+        { "id": "Terminal.ResizePaneUp", "keys": "ctrl+alt+k" },
+        { "id": "Terminal.ResizePaneRight", "keys": "ctrl+alt+l" },
+        { "id": "Terminal.ResizePaneDown", "keys": "ctrl+alt+j" },
+        { "id": "Terminal.ResetFontSize", "keys": "ctrl+0" },
+        { "id": "Terminal.OpenSettingsUI", "keys": "ctrl+shift+comma" },
+        { "id": "Terminal.MoveFocusLeft", "keys": "alt+h" },
+        { "id": "Terminal.SwapPaneUp", "keys": "ctrl+alt+shift+k" },
+        { "id": "Terminal.OpenTabColorPicker", "keys": "ctrl+shift+g" },
+        { "id": "Terminal.MoveFocusRight", "keys": "alt+l" },
+        { "id": "Terminal.MoveFocusUp", "keys": "alt+k" },
+        { "id": "Terminal.MoveFocusDown", "keys": "alt+j" },
+        { "id": "Terminal.SelectAll", "keys": "ctrl+shift+a" },
+        { "id": "Terminal.SwapPaneLeft", "keys": "ctrl+alt+shift+h" },
+        { "id": "Terminal.SwitchToTab1", "keys": "ctrl+2" },
+        { "id": "Terminal.SwapPaneRight", "keys": "ctrl+alt+shift+l" },
+        { "id": "Terminal.OpenNewTab", "keys": "ctrl+t" },
+        { "id": "Terminal.SwapPaneDown", "keys": "ctrl+alt+shift+j" },
+        { "id": "Terminal.TogglePaneZoom", "keys": "alt+z" },
+        { "id": "Terminal.ClosePane", "keys": "alt+w" },
+        { "id": "Terminal.MoveFocusFirst", "keys": "alt+1" },
+        { "id": "User.closeTab.0", "keys": "ctrl+w" },
+        { "id": "Terminal.NextTab", "keys": "ctrl+tab" },
+        { "id": "Terminal.SwitchToTab0", "keys": "ctrl+1" },
+        { "id": "Terminal.SwitchToTab2", "keys": "ctrl+3" },
+        { "id": "Terminal.ClearScrollback", "keys": "ctrl+shift+l" },
+        { "id": "Terminal.SwitchToTab3", "keys": "ctrl+4" },
+        { "id": "Terminal.SelectCommandUp", "keys": "ctrl+shift+up" },
+        { "id": "Terminal.ToggleBroadcastInput", "keys": "ctrl+shift+b" },
+        { "id": "Terminal.SwitchToTab6", "keys": "ctrl+7" },
+        { "id": "Terminal.SelectCommandDown", "keys": "ctrl+shift+down" },
+        { "id": "Terminal.ScrollDownPage", "keys": "ctrl+shift+pgdn" },
+        { "id": "Terminal.ScrollUpPage", "keys": "ctrl+shift+pgup" },
+        { "id": "Terminal.ToggleFullscreen", "keys": "f11" },
+        { "id": "Terminal.MoveTab", "keys": "ctrl+shift+period" },
+        { "id": "Terminal.ScrollToTop", "keys": "ctrl+shift+home" },
+        { "id": "Terminal.ScrollToBottom", "keys": "ctrl+shift+end" },
+        { "id": "Terminal.FindText", "keys": "ctrl+f" },
+        { "id": "Terminal.FindNextMatch", "keys": "f3" },
+        { "id": "Terminal.FindPrevMatch", "keys": "shift+f3" },
+        { "id": "Terminal.ToggleFocusMode", "keys": "alt+shift+f" },
+        { "id": "Terminal.SwitchToTab7", "keys": "ctrl+8" },
+        { "id": "Terminal.ToggleCommandPalette", "keys": "ctrl+shift+p" },
+        { "id": "Terminal.ClearBuffer", "keys": "ctrl+l" },
+        { "id": "Terminal.MarkMode", "keys": "ctrl+shift+m" },
+        { "id": "Terminal.ToggleSelectionMode", "keys": "ctrl+shift+space" },
+        { "id": "Terminal.ExportBuffer", "keys": "ctrl+shift+e" },
+        { "id": "Terminal.OpenSystemMenu", "keys": "alt+space" },
+        { "id": "Terminal.ToggleAlwaysOnTop", "keys": "alt+shift+t" },
+        { "id": "Terminal.SwitchToTab4", "keys": "ctrl+5" },
+        { "id": "Terminal.SwitchToTab5", "keys": "ctrl+6" },
+        { "id": "Terminal.SwitchToLastTab", "keys": "ctrl+9" },
+        { "id": "Terminal.ShowSuggestionsMenu", "keys": "ctrl+space" },
+        { "id": "Terminal.SuggestionsMenuSelectUp", "keys": "up" },
+        { "id": "Terminal.SuggestionsMenuSelectDown", "keys": "down" },
+        { "id": "Terminal.ScrollToNextMark", "keys": "ctrl+down" },
+        { "id": "Terminal.ShowContextMenu", "keys": "shift+f10" },
+        { "id": "Terminal.ScrollToPreviousMark", "keys": "ctrl+up" },
+        { "id": "Terminal.SelectOutputCommand", "keys": "ctrl+shift+w" },
+        { "id": "Terminal.AdjustOpacityUp", "keys": "ctrl+alt+plus" },
+        { "id": "Terminal.AdjustOpacityDown", "keys": "ctrl+alt+minus" },
+        { "id": "Terminal.ResetOpacity", "keys": "ctrl+alt+0" },
+        { "id": "User.setColorScheme.DeepFocus", "keys": "ctrl+shift+f1" },
+        { "id": "User.setColorScheme.DeepFocusContrast", "keys": "ctrl+shift+f2" }
+    ],
+    "launchMode": "default",
+    "newTabMenu": [
+        { "type": "remainingProfiles" }
+    ],
+    "profiles": {
+        "defaults": {
+            "adjustIndistinguishableColors": "indexed",
+            "antialiasingMode": "cleartype",
+            "autoMarkPrompts": true,
+            "bellStyle": ["window", "taskbar"],
+            "colorScheme": "DeepFocusContrast",
+            "cursorHeight": 25,
+            "cursorShape": "bar",
+            "font": {
+                "face": "Cascadia Code",
+                "size": 11,
+                "weight": "normal"
+            },
+            "opacity": 75,
+            "padding": "8, 8, 8, 8",
+            "scrollbarState": "visible",
+            "showMarksOnScrollbar": true,
+            "useAcrylic": true
+        },
+        "list": [
+            {
+                "colorScheme": "DeepFocusContrast",
+                "commandline": "cmd.exe /k \"cd /d C:\\Users\\rmanov && cls\"",
+                "font": { "face": "Cascadia Code", "size": 11 },
+                "guid": "{c1a0de00-c0de-4c1a-9de0-c0dec1a0de01}",
+                "hidden": false,
+                "icon": "ms-appx:///ProfileIcons/{0caa0dad-35be-5f56-a8ff-afceeeaa6101}.png",
+                "name": "Claude Code",
+                "startingDirectory": "C:\\Users\\rmanov"
+            },
+            {
+                "colorScheme": "DeepFocus",
+                "commandline": "cmd.exe /k \"cd /d C:\\Users\\rmanov && cls\"",
+                "font": { "face": "Cascadia Code", "size": 11 },
+                "guid": "{c1a0de00-c0de-4c1a-9de0-c0dec1a0de02}",
+                "hidden": true,
+                "icon": "ms-appx:///ProfileIcons/{0caa0dad-35be-5f56-a8ff-afceeeaa6101}.png",
+                "name": "Claude Code Soft",
+                "startingDirectory": "C:\\Users\\rmanov"
+            },
+            {
+                "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "guid": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+                "hidden": false,
+                "name": "PowerShell"
+            },
+            {
+                "commandline": "%SystemRoot%\\System32\\cmd.exe",
+                "guid": "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}",
+                "hidden": false,
+                "name": "Command Prompt"
+            },
+            {
+                "guid": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
+                "hidden": false,
+                "name": "PowerShell Core",
+                "source": "Windows.Terminal.PowershellCore"
+            },
+            {
+                "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
+                "hidden": true,
+                "name": "Azure Cloud Shell",
+                "source": "Windows.Terminal.Azure"
+            }
+        ]
+    },
+    "schemes": [
+        {
+            "name": "DeepFocus",
+            "background": "#0D1117",
+            "foreground": "#E6EDF3",
+            "cursorColor": "#58A6FF",
+            "selectionBackground": "#264F78",
+            "black": "#0D1117",
+            "red": "#FF7B72",
+            "green": "#7EE787",
+            "yellow": "#FFA657",
+            "blue": "#58A6FF",
+            "purple": "#D2A8FF",
+            "cyan": "#79C0FF",
+            "white": "#E6EDF3",
+            "brightBlack": "#484F58",
+            "brightRed": "#FFA198",
+            "brightGreen": "#A5F3B6",
+            "brightYellow": "#FFD56C",
+            "brightBlue": "#79C0FF",
+            "brightPurple": "#E2C5FF",
+            "brightCyan": "#A5D6FF",
+            "brightWhite": "#FFFFFF"
+        },
+        {
+            "name": "DeepFocusContrast",
+            "background": "#000000",
+            "foreground": "#FFFFFF",
+            "cursorColor": "#00FFFF",
+            "selectionBackground": "#0078D4",
+            "black": "#000000",
+            "red": "#FF6B6B",
+            "green": "#69DB7C",
+            "yellow": "#FFE066",
+            "blue": "#339AF0",
+            "purple": "#CC5DE8",
+            "cyan": "#22B8CF",
+            "white": "#F8F9FA",
+            "brightBlack": "#495057",
+            "brightRed": "#FF8787",
+            "brightGreen": "#8CE99A",
+            "brightYellow": "#FFEC99",
+            "brightBlue": "#74C0FC",
+            "brightPurple": "#E599F7",
+            "brightCyan": "#66D9E8",
+            "brightWhite": "#FFFFFF"
+        }
+    ],
+    "showTabsInTitlebar": true,
+    "showTerminalTitleInTitlebar": true,
+    "tabWidthMode": "titleLength",
+    "theme": "DeepFocusDark",
+    "themes": [
+        {
+            "name": "DeepFocusDark",
+            "tab": {
+                "background": "#0D1117FF",
+                "iconStyle": "default",
+                "showCloseButton": "always",
+                "unfocusedBackground": "#161B22FF"
+            },
+            "tabRow": {
+                "background": "#010409FF",
+                "unfocusedBackground": "#010409FF"
+            },
+            "window": {
+                "applicationTheme": "dark",
+                "experimental.rainbowFrame": false,
+                "frame": null,
+                "unfocusedFrame": null,
+                "useMica": false
+            }
+        }
+    ],
+    "trimBlockSelection": true,
+    "trimPaste": true,
+    "useAcrylicInTabRow": true
+}
+
+══════════════════════════════════════════════════════════════════════════════
+  HOW TO TRANSFER TO ANOTHER MACHINE
+══════════════════════════════════════════════════════════════════════════════
+
+  1. Copy the JSON above (from { to })
+  2. On new machine, open Windows Terminal
+  3. Press Ctrl+, to open settings.json
+  4. Replace entire content with the JSON
+  5. Save and restart Windows Terminal
+
+  Alternative: Copy the settings.json file directly:
+  FROM: %LOCALAPPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json
+  TO:   Same path on new machine
+
+══════════════════════════════════════════════════════════════════════════════
+  End of Configuration
+══════════════════════════════════════════════════════════════════════════════
