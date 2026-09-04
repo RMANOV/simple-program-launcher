@@ -16,8 +16,8 @@ param(
 # 18-те получателя на драфта, групирани
 $GROUPS = [ordered]@{
     "ХОРА — До" = [ordered]@{
-        "Емил Попов"          = "popov@bulmar.com"
-        "Юри Стоянов"         = "ystoyanov@bulmar.com"
+        "г-н Попов"           = "popov@bulmar.com"
+        "г-н Стоянов"         = "ystoyanov@bulmar.com"
         "Хари Емирян"         = "hemiryan@bulmar.com"
         "Красимир Николов"    = "knikolov@bulmar.com"
         "Радослав Стефанов"   = "rstefanov@bulmar.com"
@@ -47,6 +47,17 @@ $SLOT_MIN   = 30
 $SLOTS_PER_DAY = 48
 $COL = 20               # ширина на колоната с имената
 
+$ME_EMAIL  = "rmanov@bulmar.com"   # моята заетост — само за сечението „общи свободни прозорци"
+$MIN_ZAEDNO = 2                    # минимум слота (1 час) за ред в „ВЕРОЯТНО ЗАЕДНО"
+
+# Ключовите фигури, за които се смятат метриките и се пише дневникът.
+$KLYUCHOVI = [ordered]@{
+    "г-н Попов"        = "popov@bulmar.com"
+    "г-н Стоянов"      = "ystoyanov@bulmar.com"
+    "Силвия Иванова"   = "sivanova@bulmar.com"
+    "Красимир Николов" = "knikolov@bulmar.com"
+}
+
 function Get-AllStatus {
     $ns = (New-Object -ComObject Outlook.Application).GetNamespace("MAPI")
     $today = (Get-Date).Date
@@ -64,18 +75,22 @@ function Get-AllStatus {
             catch { $out[$name] = $null }
         }
     }
+    # моята собствена заетост — не се рисува на таблото, служи само за сечението
+    $me = $ns.CreateRecipient($ME_EMAIL)
+    $null = $me.Resolve()
+    if ($me.Resolved) {
+        try   { $out["__az"] = $me.FreeBusy($today, $SLOT_MIN, $true) }
+        catch { $out["__az"] = $null }
+    } else { $out["__az"] = $null }
     return $out
 }
 
 # --- дневник (04.09.2026): един ред на извадка за ключовите фигури, за корелации във времето.
 # Локален файл, НЕ в OneDrive и НЕ в репото — данните за заетост не излизат навън.
 $LOG_FILE = Join-Path $env:LOCALAPPDATA "bulmar-launcher\razuznavach_status.jsonl"
-$LOG_PEOPLE = [ordered]@{
-    "Емил Попов"       = "popov@bulmar.com"
-    "Юри Стоянов"      = "ystoyanov@bulmar.com"
-    "Силвия Иванова"   = "sivanova@bulmar.com"
-    "Красимир Николов" = "knikolov@bulmar.com"
-}
+# Показваното име се смени на „г-н Фамилия" на 04.09.2026; ключът за свързване
+# във времето е EMAIL-ът, не името — редовете отпреди смяната остават сравними.
+$LOG_PEOPLE = $KLYUCHOVI
 function Write-StatusLog {
     param($fb)
     try {
@@ -87,9 +102,14 @@ function Write-StatusLog {
         foreach ($name in $LOG_PEOPLE.Keys) {
             $c = Get-SlotChar $fb[$name] $slot
             $av = switch ("$c") { '0' { 'free' } '1' { 'tentative' } '2' { 'busy' } '3' { 'oof' } default { 'unknown' } }
+            # Целият ДНЕВЕН прозорец, не само текущият слот: с един знак на извадка
+            # „работен прозорец/дрейф" и знаменателят на „отклонение от базата" НИКОГА
+            # не стават изчислими, колкото и дълго да се пълни дневникът. Полето само
+            # СЪБИРА данните — метриките се строят по RAZUZNAVACH_METRIKI_SPEC.md, след прага.
             $row = [ordered]@{
                 ts_utc = $ts; person = $name; email = $LOG_PEOPLE[$name]
                 availability = $av; slot_char = "$c"; slot = $slot
+                slot_window = (Get-Prozorec $fb[$name]); window_start_slot = ($FIRST_HOUR * 2)
                 source = "outlook_freebusy_complete"   # календарна заетост, НЕ Teams presence
             }
             Add-Content -Path $LOG_FILE -Value ($row | ConvertTo-Json -Compress) -Encoding utf8
@@ -105,9 +125,10 @@ function Get-SlotChar {
 
 function Write-Slot {
     param([char]$c)
+    # Знакът, не само цветът, различава състоянията — цветът се губи при копиране.
     switch ($c) {
         '0' { Write-Host ". " -NoNewline -ForegroundColor DarkGray }
-        '1' { Write-Host "# " -NoNewline -ForegroundColor Yellow }
+        '1' { Write-Host "~ " -NoNewline -ForegroundColor Yellow }
         '2' { Write-Host "# " -NoNewline -ForegroundColor Red }
         '3' { Write-Host "o " -NoNewline -ForegroundColor DarkYellow }
         default { Write-Host "? " -NoNewline -ForegroundColor DarkGray }
@@ -154,7 +175,9 @@ function Show-Board {
             Write-Host ""
         }
     }
-    Write-Host ("  " + (" " * $COL) + ".  свободно     # заето     o  извън офиса") -ForegroundColor DarkGray
+    Write-Host ("  " + (" " * $COL) + ".  свободно   ~  условно   #  заето   o  извън офиса   ?  няма данни") -ForegroundColor DarkGray
+    Write-Host ("  " + (" " * $COL) + "?  НЕ е свободен — то е липса на данни и стои в отделна кофа.") -ForegroundColor DarkGray
+    Write-Host ("  " + (" " * $COL) + "Това е КАЛЕНДАРНА наличност. Човек на среща без запис в календара излиза свободен.") -ForegroundColor DarkGray
 }
 
 function Show-Snapshot {
@@ -197,6 +220,195 @@ function Show-Snapshot {
     }
 }
 
+# ═══ ЧИСТИ ФУНКЦИИ върху низа на заетостта ═══════════════════════════════════
+# Не пипат Outlook, часовника или екрана — затова се тестват с изкуствени низове.
+# Навсякъде: '0' свободно · '1' условно · '2' заето · '3' извън офиса · липса = няма данни.
+# „Няма данни" НИКОГА не се брои за свободно и не влиза в знаменател на свободното.
+
+function Get-Prozorec {
+    # дневният прозорец 08:00–19:00; $null, ако низът не го покрива
+    param([string]$raw, [int]$dayOffset = 0)
+    if (-not $raw) { return $null }
+    $start = $dayOffset * $SLOTS_PER_DAY + $FIRST_HOUR * 2
+    $count = ($LAST_HOUR - $FIRST_HOUR) * 2
+    if ($raw.Length -lt $start + $count) { return $null }
+    return $raw.Substring($start, $count)
+}
+
+function Get-Runs {
+    # непрекъснатите поредици, чиито знаци са в $chars
+    param([string]$win, [string]$chars)
+    # Връща ГОЛ масив — извикващият винаги го обгражда с @(...). Водеща запетая тук
+    # би увила масива втори път и $r[0] щеше да е целият списък, не първата поредица.
+    $runs = @()
+    if (-not $win) { return $runs }
+    $i = 0
+    while ($i -lt $win.Length) {
+        if ($chars.IndexOf($win[$i]) -ge 0) {
+            $j = $i
+            while ($j -lt $win.Length -and $chars.IndexOf($win[$j]) -ge 0) { $j++ }
+            $runs += [pscustomobject]@{ Start = $i; Len = $j - $i }
+            $i = $j
+        } else { $i++ }
+    }
+    return $runs
+}
+
+function Get-SlotLabel {
+    param([int]$i)
+    '{0:d2}:{1:d2}' -f ($FIRST_HOUR + [int][math]::Floor($i * $SLOT_MIN / 60)), (($i * $SLOT_MIN) % 60)
+}
+
+function Get-Span { param([int]$start, [int]$len) (Get-SlotLabel $start) + "-" + (Get-SlotLabel ($start + $len)) }
+
+function Get-NaydalagPrazen {
+    param([string]$win)
+    return (@(Get-Runs $win '0') | Sort-Object Len -Descending | Select-Object -First 1)
+}
+
+function Get-Sechenie {
+    # общите СВОБОДНИ прозорци на двама; условно/заето/няма данни не е свободно
+    param([string]$mine, [string]$theirs)
+    if (-not $mine -or -not $theirs) { return @() }
+    $n = [math]::Min($mine.Length, $theirs.Length)
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $n; $i++) {
+        [void]$sb.Append($(if ($mine[$i] -eq '0' -and $theirs[$i] -eq '0') { '0' } else { 'x' }))
+    }
+    return @(Get-Runs $sb.ToString() '0')
+}
+
+function Get-ZaetDo {
+    # индексът на първия свободен слот след $i; $null, ако е свободен сега
+    param([string]$win, [int]$i)
+    if (-not $win -or $i -lt 0 -or $i -ge $win.Length) { return $null }
+    if ($win[$i] -eq '0') { return $null }
+    $j = $i
+    while ($j -lt $win.Length -and $win[$j] -ne '0') { $j++ }
+    return $j
+}
+
+function Get-Razdrobenost {
+    # брой отделни ЗАЕТИ блока и общо заети слотове; условното не е заето
+    param([string]$win)
+    $r = @(Get-Runs $win '2')
+    $slots = 0
+    foreach ($b in $r) { $slots += $b.Len }
+    return [pscustomobject]@{ Blocks = $r.Count; Slots = $slots }
+}
+
+function Test-Otsustvie { param([string]$win) return [bool]($win -and $win.IndexOf('3') -ge 0) }
+
+function Get-Zaedno {
+    # блокове, в които ДВАМАТА са заети; условно, свободно и липса на данни КЪСАТ блока
+    param([string]$a, [string]$b, [int]$minLen = 2)
+    if (-not $a -or -not $b) { return @() }
+    $n = [math]::Min($a.Length, $b.Length)
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $n; $i++) {
+        [void]$sb.Append($(if ($a[$i] -eq '2' -and $b[$i] -eq '2') { '2' } else { 'x' }))
+    }
+    return @(@(Get-Runs $sb.ToString() '2') | Where-Object { $_.Len -ge $minLen })
+}
+
+function Get-Lift {
+    # P(двамата заети) / (P(A зает) × P(B зает)). $null = НЕИЗМЕРИМ (някой е зает 0 слота).
+    param([string]$a, [string]$b)
+    if (-not $a -or -not $b) { return $null }
+    $n = [math]::Min($a.Length, $b.Length)
+    if ($n -eq 0) { return $null }
+    $ca = 0; $cb = 0; $cab = 0
+    for ($i = 0; $i -lt $n; $i++) {
+        $x = ($a[$i] -eq '2'); $y = ($b[$i] -eq '2')
+        if ($x) { $ca++ }
+        if ($y) { $cb++ }
+        if ($x -and $y) { $cab++ }
+    }
+    if ($ca -eq 0 -or $cb -eq 0) { return $null }
+    return [math]::Round(($cab * $n) / ($ca * $cb), 2)
+}
+
+# ═══ ИЗХОД ═══════════════════════════════════════════════════════════════════
+
+function Show-Zaedno {
+    param($fb)
+    $n = ($LAST_HOUR - $FIRST_HOUR) * 2
+    Write-Host ""
+    Write-Host "  ВЕРОЯТНО ЗАЕДНО" -ForegroundColor White
+    Write-Host ("  " + ("-" * 46)) -ForegroundColor DarkGray
+    $names = @($KLYUCHOVI.Keys)
+    $redove = 0
+    for ($i = 0; $i -lt $names.Count; $i++) {
+        for ($j = $i + 1; $j -lt $names.Count; $j++) {
+            $wa = Get-Prozorec $fb[$names[$i]]
+            $wb = Get-Prozorec $fb[$names[$j]]
+            if (-not $wa -or -not $wb) { continue }
+            $blocks = @(Get-Zaedno $wa $wb $MIN_ZAEDNO)
+            if ($blocks.Count -eq 0) { continue }
+            $lift = Get-Lift $wa $wb
+            $liftText = if ($null -eq $lift) { "lift НЕИЗМЕРИМ" } else { "lift {0}" -f $lift }
+            foreach ($b in $blocks) {
+                Write-Host ("    вероятно {0} има среща с {1}, {2}" -f $names[$i], $names[$j], (Get-Span $b.Start $b.Len)) -ForegroundColor Yellow
+                Write-Host ("      блок {0} слота ({1} ч) · {2} · знаменател {3} слота" -f $b.Len, ($b.Len * $SLOT_MIN / 60), $liftText, $n) -ForegroundColor DarkGray
+                $redove++
+            }
+        }
+    }
+    if ($redove -eq 0) { Write-Host "    няма съвпадащ зает блок от поне 1 час" -ForegroundColor DarkGray }
+    Write-Host "    lift ≈ 1 = случайно съвпадение · lift значително над 1 = вероятна връзка." -ForegroundColor DarkGray
+}
+
+function Show-Metriki {
+    param($fb)
+    $n = ($LAST_HOUR - $FIRST_HOUR) * 2
+    $mine = Get-Prozorec $fb["__az"]
+    $now = Get-Date
+    $nowSlot = ($now.Hour * 2 + [int]($now.Minute / 30)) - $FIRST_HOUR * 2
+
+    Write-Host ""
+    Write-Host ("  МЕТРИКИ — една извадка, днес · знаменател {0} слота ({1:d2}:00-{2:d2}:00)" -f $n, $FIRST_HOUR, $LAST_HOUR) -ForegroundColor White
+    Write-Host ("  " + ("-" * 46)) -ForegroundColor DarkGray
+
+    foreach ($name in $KLYUCHOVI.Keys) {
+        $w = Get-Prozorec $fb[$name]
+        Write-Host ("   {0}" -f $name) -ForegroundColor White
+        if (-not $w) { Write-Host "      БЕЗ ВИДИМОСТ — няма данни за деня" -ForegroundColor DarkRed; continue }
+
+        $free = Get-NaydalagPrazen $w
+        if ($free) { Write-Host ("      прозорец за улавяне: {0} ({1} ч)" -f (Get-Span $free.Start $free.Len), ($free.Len * $SLOT_MIN / 60)) }
+        else       { Write-Host "      прозорец за улавяне: НЯМА свободен слот днес" -ForegroundColor Yellow }
+
+        if ($mine) {
+            $sh = @(Get-Sechenie $mine $w)
+            if ($sh.Count -gt 0) {
+                $best = $sh | Sort-Object Len -Descending | Select-Object -First 1
+                Write-Host ("      общи свободни с мен: {0} бр., най-дълъг {1} ({2} ч)" -f $sh.Count, (Get-Span $best.Start $best.Len), ($best.Len * $SLOT_MIN / 60))
+            } else { Write-Host "      общи свободни с мен: НЯМА" -ForegroundColor Yellow }
+        } else { Write-Host "      общи свободни с мен: НЕИЗМЕРИМО — моят календар не се чете" -ForegroundColor DarkRed }
+
+        if ($nowSlot -lt 0 -or $nowSlot -ge $n) {
+            Write-Host "      време до освобождаване: сега е извън прозореца на таблото"
+        } else {
+            $kraj = Get-ZaetDo $w $nowSlot
+            if ($null -eq $kraj) { Write-Host "      време до освобождаване: свободен сега" }
+            else { Write-Host ("      време до освобождаване: зает до {0}" -f (Get-SlotLabel $kraj)) -ForegroundColor Yellow }
+        }
+
+        $fr = Get-Razdrobenost $w
+        if ($fr.Blocks -eq 0) { Write-Host "      раздробеност: 0 заети блока" }
+        else {
+            $duma = if ($fr.Blocks -eq 1) { "блок" } else { "блока" }
+            Write-Host ("      раздробеност: {0} {1} / {2} слота заето (среден блок {3} ч)" -f $fr.Blocks, $duma, $fr.Slots, [math]::Round($fr.Slots / $fr.Blocks * $SLOT_MIN / 60, 1))
+        }
+
+        if (Test-Otsustvie $w) { Write-Host "      ФЛАГ ИЗВЪН ОФИСА — денят преди и след отсъствие е предсказуемо претоварен" -ForegroundColor DarkYellow }
+    }
+    Write-Host "    Всяко число е за НАЛИЧНОСТТА В КАЛЕНДАРА, не за човека." -ForegroundColor DarkGray
+}
+
+# Тестовете дот-сорсват файла само заради функциите — този флаг спира таблото.
+if (-not $env:RAZUZNAVACH_LIB_ONLY) {
+
 do {
     if ($Watch) { Clear-Host }
     Write-Host ""
@@ -204,6 +416,8 @@ do {
     $fb = Get-AllStatus
     Write-StatusLog -fb $fb
     for ($d = 0; $d -lt $Days; $d++) { Show-Board -fb $fb -dayOffset $d }
+    Show-Zaedno -fb $fb
+    Show-Metriki -fb $fb
     if ($At) { Show-Snapshot -fb $fb -timeText $At }
     if ($Watch) {
         Write-Host ""
@@ -211,3 +425,5 @@ do {
         Start-Sleep -Seconds $RefreshSec
     }
 } while ($Watch)
+
+}
