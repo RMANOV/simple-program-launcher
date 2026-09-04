@@ -56,11 +56,45 @@ function Get-AllStatus {
             $r = $ns.CreateRecipient($GROUPS[$g][$name])
             $null = $r.Resolve()
             if (-not $r.Resolved) { $out[$name] = $null; continue }
-            try   { $out[$name] = $r.FreeBusy($today, $SLOT_MIN, $false) }
+            # ПЪЛЕН формат ($true): '0' свободно · '1' условно · '2' заето · '3' извън офиса —
+            # точно това, което Write-Slot и Show-Snapshot рисуват и надписват.
+            # Простият формат ($false) връща само '0'/'1' и на 04.09.2026 даваше ЕП зает 08:00–19:00,
+            # докато пълният за същия ден: 0000002222000022222200 (свободен 08–11 и 13–15).
+            try   { $out[$name] = $r.FreeBusy($today, $SLOT_MIN, $true) }
             catch { $out[$name] = $null }
         }
     }
     return $out
+}
+
+# --- дневник (04.09.2026): един ред на извадка за ключовите фигури, за корелации във времето.
+# Локален файл, НЕ в OneDrive и НЕ в репото — данните за заетост не излизат навън.
+$LOG_FILE = Join-Path $env:LOCALAPPDATA "bulmar-launcher\razuznavach_status.jsonl"
+$LOG_PEOPLE = [ordered]@{
+    "Емил Попов"       = "popov@bulmar.com"
+    "Юри Стоянов"      = "ystoyanov@bulmar.com"
+    "Силвия Иванова"   = "sivanova@bulmar.com"
+    "Красимир Николов" = "knikolov@bulmar.com"
+}
+function Write-StatusLog {
+    param($fb)
+    try {
+        $dir = Split-Path $LOG_FILE -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $now = Get-Date
+        $slot = $now.Hour * 2 + [int]($now.Minute / 30)
+        $ts = $now.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        foreach ($name in $LOG_PEOPLE.Keys) {
+            $c = Get-SlotChar $fb[$name] $slot
+            $av = switch ("$c") { '0' { 'free' } '1' { 'tentative' } '2' { 'busy' } '3' { 'oof' } default { 'unknown' } }
+            $row = [ordered]@{
+                ts_utc = $ts; person = $name; email = $LOG_PEOPLE[$name]
+                availability = $av; slot_char = "$c"; slot = $slot
+                source = "outlook_freebusy_complete"   # календарна заетост, НЕ Teams presence
+            }
+            Add-Content -Path $LOG_FILE -Value ($row | ConvertTo-Json -Compress) -Encoding utf8
+        }
+    } catch { }   # дневникът никога не бламира таблото
 }
 
 function Get-SlotChar {
@@ -168,6 +202,7 @@ do {
     Write-Host ""
     Write-Host "  СТАТУС — 18 получателя" -ForegroundColor White
     $fb = Get-AllStatus
+    Write-StatusLog -fb $fb
     for ($d = 0; $d -lt $Days; $d++) { Show-Board -fb $fb -dayOffset $d }
     if ($At) { Show-Snapshot -fb $fb -timeText $At }
     if ($Watch) {
