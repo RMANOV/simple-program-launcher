@@ -15,3 +15,6 @@ usage.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Admin script receipts (per-run JSON, kept on disk, not in git)
+scripts/receipts/
