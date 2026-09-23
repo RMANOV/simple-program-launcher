@@ -6,6 +6,9 @@ __pycache__/
 # Runtime state (changes every run)
 clipboard.json
 usage.json
+clipboard.json.bak
+usage.json.bak
+*.json.tmp
 
 # IDE
 .idea/

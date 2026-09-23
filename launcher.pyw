@@ -25,6 +25,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger("launcher")
 
+
+def _is_valid_json(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            json.load(f)
+        return True
+    except Exception:
+        return False
+
+
+def _write_json_atomic(path, data, backup=None):
+    """Write JSON via temp file + os.replace so a failed write (e.g. disk full) never truncates the old file.
+    With backup: the previous readable version is kept there; an unreadable file never replaces it."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        if backup is not None and _is_valid_json(path):
+            os.replace(path, backup)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 # Windows API
 user32 = ctypes.windll.user32
 VK_LBUTTON, VK_RBUTTON = 0x01, 0x02
@@ -38,7 +63,9 @@ class POINT(ctypes.Structure):
 CONFIG_FILE = Path(__file__).parent / "config.json"
 CONFIG_BACKUP = Path(__file__).parent / "config.json.bak"
 USAGE_FILE = Path(__file__).parent / "usage.json"
+USAGE_BACKUP = Path(__file__).parent / "usage.json.bak"
 CLIP_FILE = Path(__file__).parent / "clipboard.json"
+CLIP_BACKUP = Path(__file__).parent / "clipboard.json.bak"
 
 # Settings
 POLL_MS = 30
@@ -97,20 +124,20 @@ class LauncherPopup:
 
     # ==================== MFU (Most Frequently Used) ====================
     def _load_usage(self):
-        """Load usage stats"""
-        if USAGE_FILE.exists():
-            try:
-                with open(USAGE_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f).get("items", {})
-            except Exception as e:
-                logger.warning(f"Usage load failed: {e}")
+        """Load usage stats, with backup recovery"""
+        for usage_file in [USAGE_FILE, USAGE_BACKUP]:
+            if usage_file.exists():
+                try:
+                    with open(usage_file, "r", encoding="utf-8") as f:
+                        return json.load(f).get("items", {})
+                except Exception as e:
+                    logger.warning(f"Usage load failed ({usage_file.name}): {e}")
         return {}
 
     def _save_usage(self, usage):
         """Save usage stats"""
         try:
-            with open(USAGE_FILE, "w", encoding="utf-8") as f:
-                json.dump({"items": usage}, f, indent=2, ensure_ascii=False)
+            _write_json_atomic(USAGE_FILE, {"items": usage}, backup=USAGE_BACKUP)
         except Exception as e:
             logger.error(f"Usage save failed: {e}")
 
@@ -150,22 +177,23 @@ class LauncherPopup:
 
     # ==================== CLIPBOARD ====================
     def _load_clips(self):
-        """Load clipboard history sorted by usage count"""
-        if CLIP_FILE.exists():
-            try:
-                with open(CLIP_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    # Handle old format (list of strings)
-                    if data and isinstance(data[0], str):
-                        return [{"text": t, "count": 0, "last": ""} for t in data]
-                    # Sort by count DESC, then by last DESC (newest first among same count)
-                    return sorted(
-                        data,
-                        key=lambda x: (x.get("count", 0), x.get("last", "")),
-                        reverse=True,
-                    )
-            except Exception as e:
-                logger.warning(f"Clipboard load failed: {e}")
+        """Load clipboard history sorted by usage count, with backup recovery"""
+        for clip_file in [CLIP_FILE, CLIP_BACKUP]:
+            if clip_file.exists():
+                try:
+                    with open(clip_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        # Handle old format (list of strings)
+                        if data and isinstance(data[0], str):
+                            return [{"text": t, "count": 0, "last": ""} for t in data]
+                        # Sort by count DESC, then by last DESC (newest first among same count)
+                        return sorted(
+                            data,
+                            key=lambda x: (x.get("count", 0), x.get("last", "")),
+                            reverse=True,
+                        )
+                except Exception as e:
+                    logger.warning(f"Clipboard load failed ({clip_file.name}): {e}")
         return []
 
     def _save_clips(self, clips):
@@ -184,8 +212,7 @@ class LauncherPopup:
             victim = min(clips, key=lambda c: (c.get("count", 0), c.get("last", "")))
             clips.remove(victim)
         try:
-            with open(CLIP_FILE, "w", encoding="utf-8") as f:
-                json.dump(clips, f, indent=2, ensure_ascii=False)
+            _write_json_atomic(CLIP_FILE, clips, backup=CLIP_BACKUP)
         except Exception as e:
             logger.error(f"Clipboard save failed: {e}")
 
