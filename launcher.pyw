@@ -25,6 +25,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger("launcher")
 
+
+def _write_json_atomic(path, data):
+    """Write JSON via temp file + os.replace so a failed write (e.g. disk full) never truncates the old file"""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 # Windows API
 user32 = ctypes.windll.user32
 VK_LBUTTON, VK_RBUTTON = 0x01, 0x02
@@ -109,8 +122,7 @@ class LauncherPopup:
     def _save_usage(self, usage):
         """Save usage stats"""
         try:
-            with open(USAGE_FILE, "w", encoding="utf-8") as f:
-                json.dump({"items": usage}, f, indent=2, ensure_ascii=False)
+            _write_json_atomic(USAGE_FILE, {"items": usage})
         except Exception as e:
             logger.error(f"Usage save failed: {e}")
 
@@ -184,8 +196,7 @@ class LauncherPopup:
             victim = min(clips, key=lambda c: (c.get("count", 0), c.get("last", "")))
             clips.remove(victim)
         try:
-            with open(CLIP_FILE, "w", encoding="utf-8") as f:
-                json.dump(clips, f, indent=2, ensure_ascii=False)
+            _write_json_atomic(CLIP_FILE, clips)
         except Exception as e:
             logger.error(f"Clipboard save failed: {e}")
 
