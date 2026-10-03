@@ -139,7 +139,11 @@ class FedoraSessions(unittest.TestCase):
                 deadline = time.monotonic() + 10
                 while time.monotonic() < deadline:
                     if select.select([fd], [], [], 0.1)[0]:
-                        block = os.read(fd, 65536)
+                        try:
+                            block = os.read(fd, 65536)
+                        except OSError:
+                            self.fail('Shell exited before prompt; source may have replaced DEBUG: '
+                                      + chunks.decode(errors='replace'))
                         current.extend(block)
                         chunks.extend(block)
                         if b'__SPL_PROMPT_SENTINEL__ ' in current:
