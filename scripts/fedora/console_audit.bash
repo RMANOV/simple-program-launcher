@@ -60,7 +60,7 @@ if [[ ${PROMPT_COMMAND:-} != *'__spl_audit_prompt_marker'* ]]; then
         return "$rc"
     }
     unset PROMPT_COMMAND
-    PROMPT_COMMAND='__SPL_AUDIT_PROMPT_RC=$?
+    PROMPT_COMMAND='__SPL_AUDIT_IN_HOOK=1 __SPL_AUDIT_PROMPT_RC=$?
 if [[ ${__SPL_AUDIT_DEBUG_CHECKED:-0} == 0 ]]; then
     __SPL_AUDIT_DEBUG_CHECKED=1
     if [[ -z $(trap -p DEBUG) ]]; then

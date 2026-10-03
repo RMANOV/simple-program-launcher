@@ -119,6 +119,12 @@ class FedoraSessions(unittest.TestCase):
                         'printf DEBUG_INSTALLED')
         self.assertIn('DEBUG_INSTALLED', out)
 
+    def test_repeated_prompt_has_no_internal_result_markers(self):
+        # The second explicit eval is a user command and earns one marker;
+        # its prompt bookkeeping must not produce additional phantom markers.
+        out = self.bash('source "$1"; eval "$PROMPT_COMMAND"; eval "$PROMPT_COMMAND"')
+        self.assertEqual(out.count(' RESULT'), 1, out)
+
     def test_real_interactive_prompt_preserves_debug_and_hook_status(self):
         rcfile = self.root / 'interactive-rc.bash'
         rcfile.write_text('trap ":" DEBUG\n'
