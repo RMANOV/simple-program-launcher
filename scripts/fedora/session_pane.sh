@@ -11,8 +11,8 @@ STATE_ROOT=${SPL_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/simple-progra
 SESSION_NAME=${SPL_TMUX_SESSION_NAME:-simple-program-launcher}
 AUTHOR=${USER:-$(id -un 2>/dev/null || printf 'unknown')}
 
-mkdir -p "$STATE_ROOT/restart" "$STATE_ROOT/requests"
 umask 077
+mkdir -p "$STATE_ROOT/restart" "$STATE_ROOT/requests"
 
 usage() {
     cat <<'EOF'
@@ -99,8 +99,8 @@ ensure_layout() {
     printf -v shell_cmd 'bash --rcfile %q -i' "$AUDIT_SCRIPT"
     tmux new-session -d -s "$SESSION_NAME" -n quad "$claude_cmd"
     tmux split-window -h -t "$SESSION_NAME:0.0" "$codex_cmd"
-    tmux split-window -h -t "$SESSION_NAME:0.0" "$shell_cmd"
-    tmux split-window -h -t "$SESSION_NAME:0.0" "$shell_cmd"
+    tmux split-window -h -t "$SESSION_NAME:0.1" "$shell_cmd"
+    tmux split-window -h -t "$SESSION_NAME:0.2" "$shell_cmd"
     tmux select-layout -t "$SESSION_NAME:0" even-horizontal >/dev/null
     tmux set-option -t "$SESSION_NAME" remain-on-exit on
     log "READY tmux session $SESSION_NAME (Claude | Codex | Shell | MAIN)"
