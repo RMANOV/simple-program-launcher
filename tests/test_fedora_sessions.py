@@ -6,11 +6,14 @@ The tmux integration uses a private socket and substitutes only pane payloads.
 """
 import os
 from pathlib import Path
+import pty
+import select
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -22,7 +25,8 @@ if Path(sys.argv[0]).name == 'tmux':
                                     os.environ['SPL_TEST_SOCKET']] + args))
 
 
-ROOT = Path(__file__).resolve().parents[1]
+# Optional exact baseline source tree supports repeatable RED verification.
+ROOT = Path(os.environ.get('SPL_TEST_SOURCE_ROOT', Path(__file__).resolve().parents[1]))
 AUDIT = ROOT / 'scripts/fedora/console_audit.bash'
 BROKER = ROOT / 'scripts/fedora/session_pane.sh'
 
@@ -114,6 +118,59 @@ class FedoraSessions(unittest.TestCase):
                         'eval "$PROMPT_COMMAND"; [[ "$first" == "$(trap -p DEBUG)" ]] || exit 75; '
                         'printf DEBUG_INSTALLED')
         self.assertIn('DEBUG_INSTALLED', out)
+
+    def test_real_interactive_prompt_preserves_debug_and_hook_status(self):
+        rcfile = self.root / 'interactive-rc.bash'
+        rcfile.write_text('trap ":" DEBUG\n'
+                          'before=$(trap -p DEBUG)\n'
+                          'PROMPT_COMMAND=(\'seen=$?; (exit 5)\' \'second=$?\')\n'
+                          'PS1="__SPL_PROMPT_SENTINEL__ "\n'
+                          'source "' + str(AUDIT) + '"\n'
+                          '[[ "$before" == "$(trap -p DEBUG)" ]] || exit 81\n')
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execve('/usr/bin/bash', ['/usr/bin/bash', '--noprofile', '--rcfile',
+                                      str(rcfile), '-i'], self.env)
+        chunks = bytearray()
+        reaped = False
+        try:
+            def read_prompt():
+                current = bytearray()
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if select.select([fd], [], [], 0.1)[0]:
+                        block = os.read(fd, 65536)
+                        current.extend(block)
+                        chunks.extend(block)
+                        if b'__SPL_PROMPT_SENTINEL__ ' in current:
+                            return
+                self.fail('Real interactive prompt missing: ' + chunks.decode(errors='replace'))
+            read_prompt()
+            os.write(fd, b'(exit 17)\n')
+            read_prompt()
+            os.write(fd, b'printf "REAL_PROBE=<%s,%s> TRAP=<%s>\\n" "$seen" "$second" "$(trap -p DEBUG)"; exit\n')
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if select.select([fd], [], [], 0.1)[0]:
+                    try:
+                        block = os.read(fd, 65536)
+                    except OSError:
+                        break
+                    chunks.extend(block)
+                done, status = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    reaped = True
+                    self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+                    break
+            output = chunks.decode(errors='replace')
+            self.assertIn("REAL_PROBE=<17,5> TRAP=<trap -- ':' DEBUG>", output)
+        finally:
+            os.close(fd)
+            if not reaped:
+                done, status = os.waitpid(pid, os.WNOHANG)
+                if not done:
+                    os.kill(pid, 15)
+                    os.waitpid(pid, 0)
 
     def test_new_state_directories_are_private_under_permissive_caller_umask(self):
         self.bash('umask 022; "$2" inspect claude', interactive=False)
