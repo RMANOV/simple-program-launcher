@@ -4,6 +4,7 @@
     {"name": "Rates Monthly", "path": "D:\\OneDrive - Крестън БулМар ООД\\4_rates_to_monthly_updates", "icon": "📁"},
     {"name": "Mapping Studio", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_mapping_studio.vbs", "icon": "🗺"},
     {"name": "Reports GUI", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\launch_gui.vbs", "icon": "📊"},
+    {"name": "CHITIN", "path": "D:\\OneDrive - Крестън БулМар ООД\\utilities\\launcher\\scripts\\start_chitin.vbs", "icon": "🧬"},
     {"name": "Screensaver", "path": "D:\\OneDrive - Крестън БулМар ООД\\screensavers\\start_screensaver.vbs", "icon": "🖼"},
     {"name": "MS Guard Run", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\scripts\\guard_run.bat", "icon": "🛡"},
     {"name": "MS State Gate", "path": "D:\\OneDrive - Крестън БулМар ООД\\reports_generator\\scripts\\state_gate.bat", "icon": "🔍"},
