@@ -1,4 +1,4 @@
-# Disk Cleanup Script
+﻿# Disk Cleanup Script
 # Почиства: uv cache, temp files, Claude sessions, .node cache, pip/npm cache, Snipping Tool temp, OneDrive Screenshots, Recycle Bin
 #           Browser caches (Chrome/Edge), VS Code caches, OneDrive logs, Teams cache, OfficeHub EBWebView cache, Cargo cache
 # Автор: rmanov | Дата: 2026-01-19 | Обновен: 2026-03-31 (OfficeHub cache, Cargo cache, Claude VM advisory)
@@ -73,7 +73,7 @@ if (Test-Path $UvCachePath) {
         Measure-Object -Property Length -Sum).Sum
     $UvBeforeMB = [math]::Round($UvBefore / 1MB, 0)
     Write-Host "  Cleaning uv cache ($UvBeforeMB MB)..." -NoNewline
-    $uvResult = Invoke-WithTimeout -Script { uv cache clean 2>&1 } -TimeoutSec 300 -Name "uv cache"
+    $uvResult = Invoke-WithTimeout -Script { uv cache clean 2>&1 } -TimeoutSec 900 -Name "uv cache"
     # uv cache clean deletes everything, so freed = before size
     if ($uvResult) {
         $UvFreed = $UvBeforeMB
@@ -249,8 +249,11 @@ $ODFreed = 0
 $OneDriveExe = "$env:LOCALAPPDATA\Microsoft\OneDrive\OneDrive.exe"
 $OneDriveWasRunning = $false
 $ODLogExtensions = @('.odl', '.odlgz', '.aodl', '.etlgz', '.log', '.loggz')
-if (Get-Process OneDrive -EA SilentlyContinue) {
+$ODProc = Get-Process OneDrive -EA SilentlyContinue | Select-Object -First 1
+if ($ODProc) {
     $OneDriveWasRunning = $true
+    # Per-machine installs live in Program Files, not LOCALAPPDATA: restart exactly what was running
+    if ($ODProc.Path) { $OneDriveExe = $ODProc.Path }
     Stop-Process -Name OneDrive -Force -EA SilentlyContinue
     Start-Sleep -Milliseconds 800
 }
@@ -268,8 +271,13 @@ if (Test-Path $ODLogsPath) {
     if ($ODFreed -lt 0) { $ODFreed = 0 }
     $TotalFreedMB += $ODFreed
 }
-if ($OneDriveWasRunning -and (Test-Path $OneDriveExe)) {
-    Start-Process $OneDriveExe -EA SilentlyContinue | Out-Null
+if ($OneDriveWasRunning) {
+    if (Test-Path $OneDriveExe) {
+        Start-Process $OneDriveExe -ArgumentList '/background' -EA SilentlyContinue | Out-Null
+        Add-Content $LogFile "OneDrive restarted: $OneDriveExe"
+    } else {
+        Add-Content $LogFile "OneDrive NOT restarted: $OneDriveExe not found"
+    }
 }
 Add-Content $LogFile "Cleaned OneDrive logs: $ODFreed MB freed"
 Write-Host "  OneDrive logs: $ODFreed MB freed" -ForegroundColor Cyan

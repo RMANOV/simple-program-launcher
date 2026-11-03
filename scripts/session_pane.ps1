@@ -564,11 +564,11 @@ function Invoke-AgentCli {
             $executable = (Get-Command 'codex.cmd' -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
             if ($Id) {
                 Write-Audit 'SESSION-PANE' 'RESULT' "Codex resume $Id"
-                & $executable resume $Id
+                & $executable resume $Id --no-daemon
             }
             elseif ($AllowLastFallback) {
                 Write-Audit 'SESSION-PANE' 'RESULT' 'Codex resume --last (първо свързване; UUID ще бъде запомнен).'
-                & $executable resume --last
+                & $executable resume --last --no-daemon
             }
             else {
                 throw 'Липсва Codex session ID.'
