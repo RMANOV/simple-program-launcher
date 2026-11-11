@@ -150,41 +150,92 @@ function Test-PidAlive {
 
 function Test-WindowsTerminalAlive {
     try {
-        Get-Process -Name 'WindowsTerminal' -ErrorAction Stop | Select-Object -First 1 | Out-Null
-        return $true
+        return @(
+            Get-CimInstance Win32_Process -Filter "Name='WindowsTerminal.exe'" |
+                Where-Object { (Get-TerminalBrand $_.ExecutablePath) -eq 'intelligent' }
+        ).Count -gt 0
     }
     catch {
         return $false
     }
 }
 
+function Get-TerminalBrand {
+    param([string]$ExecutablePath)
+
+    if ($ExecutablePath -match '\\Microsoft\.IntelligentTerminal_[^\\]+\\WindowsTerminal\.exe$') {
+        return 'intelligent'
+    }
+    if ($ExecutablePath -match '\\Microsoft\.WindowsTerminal_[^\\]+\\WindowsTerminal\.exe$') {
+        return 'classic'
+    }
+    return $null
+}
+
+function Get-HostTerminalOwner {
+    param([int]$HostId, [datetime]$ExpectedStart, [string]$ExpectedExecutable = '')
+
+    try {
+        $processes = @{}
+        foreach ($process in @(Get-CimInstance Win32_Process)) {
+            $processes[[int]$process.ProcessId] = $process
+        }
+        if (-not $processes.ContainsKey($HostId)) { return $null }
+        $current = $processes[$HostId]
+        $hostExecutable = [string]$current.ExecutablePath
+        if ($hostExecutable -notmatch '\\(?:pwsh|powershell)\.exe$' -or
+            [math]::Abs((([datetime]$current.CreationDate) - $ExpectedStart).TotalSeconds) -gt 2 -or
+            ($ExpectedExecutable -and -not [string]::Equals($hostExecutable, $ExpectedExecutable, [StringComparison]::OrdinalIgnoreCase))) {
+            return $null
+        }
+        $lineage = @()
+        for ($depth = 0; $depth -lt 32; $depth++) {
+            $id = [int]$current.ProcessId
+            if ($id -in $lineage) { return $null }
+            $brand = Get-TerminalBrand ([string]$current.ExecutablePath)
+            if ($brand) {
+                return @{ brand = $brand; terminalPid = $id; hostExecutable = $hostExecutable; lineage = $lineage }
+            }
+            $lineage += $id
+            $parentId = [int]$current.ParentProcessId
+            if (-not $processes.ContainsKey($parentId)) { return $null }
+            $parent = $processes[$parentId]
+            if ([datetime]$parent.CreationDate -gt [datetime]$current.CreationDate) { return $null }
+            $current = $parent
+        }
+    }
+    catch { return $null }
+    return $null
+}
+
+function Get-AgentTerminalTarget {
+    param([string]$ForAgent)
+
+    $state = Invoke-WithMutex "SessionPaneState_$ForAgent" {
+        Read-JsonHashtable (Join-Path $StateRoot "$ForAgent.json")
+    }
+    if (-not $state.Contains('hostPid') -or -not $state['hostPid'] -or
+        -not $state.Contains('hostProcessStartedAt') -or
+        -not $state.Contains('hostWtSession') -or -not (Test-ValidSessionId ([string]$state['hostWtSession']))) {
+        return $null
+    }
+    try {
+        $expectedExecutable = if ($state.Contains('hostExecutablePath')) { [string]$state['hostExecutablePath'] } else { '' }
+        $owner = Get-HostTerminalOwner ([int]$state['hostPid']) ([datetime]::Parse([string]$state['hostProcessStartedAt'])) $expectedExecutable
+        if (-not $owner -or ($state.Contains('hostTerminalApp') -and $state['hostTerminalApp'] -and $state['hostTerminalApp'] -ne $owner.brand)) {
+            return $null
+        }
+        $owner['session'] = [string]$state['hostWtSession']
+        return $owner
+    }
+    catch { return $null }
+}
+
 function Test-CanonicalWorkspaceExpected {
-    # Do not call `wt -w <name>` merely to probe the window: Windows Terminal
-    # creates a new named window when the name is missing.  The layout/state
-    # files are our non-creating read-side hint that the canonical workspace
-    # was bootstrapped previously.
-    if (-not (Test-WindowsTerminalAlive)) {
-        return $false
-    }
-    if (Test-Path -LiteralPath $LayoutFile) {
-        $layout = Read-JsonHashtable $LayoutFile
-        if ($layout.Contains('canonicalWindow') -and
-            [string]::Equals([string]$layout['canonicalWindow'], $TerminalWindow, [StringComparison]::OrdinalIgnoreCase)) {
-            return $true
-        }
-    }
+    # Both applications use WindowsTerminal.exe. A stale layout marker alone
+    # cannot identify a live pane or justify a creating `-w <name>` command.
     foreach ($candidate in @('claude', 'codex')) {
-        $candidatePath = Join-Path $StateRoot "$candidate.json"
-        if (-not (Test-Path -LiteralPath $candidatePath)) {
-            continue
-        }
-        $candidateState = Invoke-WithMutex "SessionPaneState_$candidate" {
-            Read-JsonHashtable $candidatePath
-        }
-        if ($candidateState.Contains('hostWtSession') -and
-            -not [string]::IsNullOrWhiteSpace([string]$candidateState['hostWtSession'])) {
-            return $true
-        }
+        if ($null -ne (Get-AgentTerminalTarget $candidate)) { return $true }
     }
     return $false
 }
@@ -192,26 +243,7 @@ function Test-CanonicalWorkspaceExpected {
 function Test-HostAlive {
     param([string]$ForAgent)
 
-    $path = Join-Path $StateRoot "$ForAgent.json"
-    $state = Invoke-WithMutex "SessionPaneState_$ForAgent" {
-        Read-JsonHashtable $path
-    }
-    if (-not $state.Contains('hostPid') -or -not (Test-PidAlive $state['hostPid'])) {
-        return $false
-    }
-    if ($state.Contains('hostProcessStartedAt') -and $state['hostProcessStartedAt']) {
-        try {
-            $process = Get-Process -Id ([int]$state['hostPid']) -ErrorAction Stop
-            $expected = [datetime]::Parse([string]$state['hostProcessStartedAt'])
-            if ([math]::Abs(($process.StartTime - $expected).TotalSeconds) -gt 2) {
-                return $false
-            }
-        }
-        catch {
-            return $false
-        }
-    }
-    return $true
+    return $null -ne (Get-AgentTerminalTarget $ForAgent)
 }
 
 function Clear-HostStateIfOwned {
@@ -230,6 +262,34 @@ function Clear-HostStateIfOwned {
 function Focus-AgentPane {
     param([string]$ForAgent)
 
+    $target = Get-AgentTerminalTarget $ForAgent
+    if (-not $target) {
+        Write-Audit 'SESSION-PANE' 'NOOP' 'Няма доказан жив панел; нов прозорец няма да бъде създаден.'
+        return 20
+    }
+    if ($target.brand -eq 'intelligent') {
+        $previousClsid = $env:WT_COM_CLSID
+        try {
+            # Process-local routing to Intelli's installed COM identity; the
+            # exact GUID and current host lineage prevent active-pane fallback.
+            $env:WT_COM_CLSID = '{A2E4F6B8-1C3D-4E5F-A6B7-C8D9E0F1A2B3}'
+            $statusJson = & wtcli.exe --json pane-status -t $target.session
+            if ($LASTEXITCODE -ne 0) { return 20 }
+            $status = $statusJson | ConvertFrom-Json
+            if ($status.session_id -ne $target.session -or $status.state -ne 'running' -or
+                [int]$status.pid -notin $target.lineage) { return 20 }
+            & wtcli.exe --json focus-pane -t $target.session | Out-Null
+            return [int]$LASTEXITCODE
+        }
+        catch {
+            Write-Audit 'SESSION-PANE' 'WARN' 'Intelligent Terminal не потвърди живия панел.'
+            return 20
+        }
+        finally { $env:WT_COM_CLSID = $previousClsid }
+    }
+
+    # A verified existing classic host keeps its original focus route. New
+    # interactive layouts use wtai.exe; existing live writers are never moved.
     # The quad layout is deterministic: Claude is the leftmost pane and Codex
     # is immediately to its right.  WT has no supported "send command to an
     # existing pane" CLI; the resident Host process is what makes reuse safe.
@@ -253,9 +313,8 @@ function Focus-AgentPane {
             # is only a best-effort foreground nudge after WT has materialized
             # a window handle.
             Start-Sleep -Milliseconds 120
-            $terminal = Get-Process -Name 'WindowsTerminal' -ErrorAction SilentlyContinue |
+            $terminal = Get-Process -Id $target.terminalPid -ErrorAction SilentlyContinue |
                 Where-Object { $_.MainWindowHandle -ne 0 } |
-                Sort-Object StartTime -Descending |
                 Select-Object -First 1
             if ($terminal) {
                 try {
@@ -283,11 +342,11 @@ function Focus-TerminalWindow {
             [void](Focus-AgentPane $ForAgent)
         }
         else {
-            try {
-                & cmd.exe @('/d', '/c', 'wt.exe', '-w', $TerminalWindow, 'focus-tab', '-t', '0') | Out-Null
-            }
-            catch {
-                Write-Audit 'SESSION-PANE' 'WARN' 'Windows Terminal не можа да фокусира canonical window.'
+            foreach ($candidate in @('claude', 'codex')) {
+                if ($null -ne (Get-AgentTerminalTarget $candidate)) {
+                    [void](Focus-AgentPane $candidate)
+                    break
+                }
             }
         }
         return
@@ -684,6 +743,7 @@ function Run-Host {
 
         Ensure-StateDirectories
         $hostProcessStartedAt = (Get-Process -Id $PID).StartTime.ToString('o')
+        $terminalOwner = Get-HostTerminalOwner $PID ([datetime]::Parse($hostProcessStartedAt))
         $initialStatus = if (Test-Path -LiteralPath $RequestFile) { 'queued' } else { 'idle' }
         Update-AgentState @{
             hostPid = $PID
@@ -692,6 +752,8 @@ function Run-Host {
             cwd = $WorkingDirectory
             hostStartedAt = (Get-Date).ToString('o')
             hostProcessStartedAt = $hostProcessStartedAt
+            hostExecutablePath = (Get-Process -Id $PID).Path
+            hostTerminalApp = if ($terminalOwner) { $terminalOwner.brand } else { $null }
         }
         $host.UI.RawUI.WindowTitle = "RManov $($Agent.ToUpperInvariant()) pane"
         Write-Audit ($Agent.ToUpperInvariant()) 'READY' 'Този панел е постоянният launcher slot.'
@@ -924,6 +986,7 @@ function Run-PrepareLayout {
         }
         Write-JsonAtomic $LayoutFile ([ordered]@{
             canonicalWindow = $TerminalWindow
+            terminalApp = 'intelligent'
             tabIndex = 0
             paneLayout = 'claude,codex,shell,main'
             startedAt = (Get-Date).ToString('o')

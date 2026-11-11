@@ -18,4 +18,4 @@ REM     .\razuznavach.ps1 -Watch         (zhivo, na 60 sek)
 REM ============================================================
 set "SDIR=%~dp0"
 if "%SDIR:~-1%"=="\" set "SDIR=%SDIR:~0,-1%"
-start "" wt.exe -d "%SDIR%" pwsh.exe -NoExit -File "%SDIR%\razuznavach.ps1"
+start "" wtai.exe -d "%SDIR%" pwsh.exe -NoExit -File "%SDIR%\razuznavach.ps1"
