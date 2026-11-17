@@ -27,4 +27,4 @@ WScript.Sleep 500
 
 ' Start CHITIN in a normal window (pythonw has no console; style 0 could hide the Tk window)
 WshShell.CurrentDirectory = chitinDir
-WshShell.Run """" & exePath & """ """ & chitinDir & "battle_evolution.py"" --max-agents 60", 1, False
+WshShell.Run """" & exePath & """ """ & chitinDir & "learned_empire.py"" --strategy mixed --faction 1 --instinct-faction 0", 1, False
