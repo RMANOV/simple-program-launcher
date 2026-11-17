@@ -26,8 +26,9 @@ WshShell.Run "taskkill /F /IM " & exeName, 0, True
 WScript.Sleep 500
 
 ' Start CHITIN in a normal window (pythonw has no console; style 0 could hide the Tk window)
-' --c1-hunters all   the hunters of every faction follow the C1 rule
+' --c1-hunters 0     the hunters of faction 0 follow the C1 rule: the one setting
+'                    that passed test A1 (17.11.2026); "all" fell below its guard
 ' --epoch-log-dir    one JSON line per finished epoch, so a long run leaves a record
 epochDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\AlgorithmicArts\chitin-epochs"
 WshShell.CurrentDirectory = chitinDir
-WshShell.Run """" & exePath & """ """ & chitinDir & "learned_empire.py"" --strategy mixed --faction 1 --instinct-faction 0 --c1-hunters all --epoch-log-dir """ & epochDir & """", 1, False
+WshShell.Run """" & exePath & """ """ & chitinDir & "learned_empire.py"" --strategy mixed --faction 1 --instinct-faction 0 --c1-hunters 0 --epoch-log-dir """ & epochDir & """", 1, False
